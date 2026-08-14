@@ -8,17 +8,17 @@ def test_canonical_id_aliases_lsposed_to_vector():
 
 def test_build_argv_simple_read_command():
     argv = commands.build_argv("status", flags=["--json"])
-    assert argv == ["/data/local/tmp/xpad2", "status", "--json"]
+    assert argv == [commands.XPAD2_DEVICE_PATH, "status", "--json"]
 
 
 def test_build_argv_root_passthrough_quotes_command():
     argv = commands.build_argv("root", positional=["--", "/system/bin/id -u"])
-    assert argv == ["/data/local/tmp/xpad2", "root", "--", "/system/bin/id -u"]
+    assert argv == [commands.XPAD2_DEVICE_PATH, "root", "--", "/system/bin/id -u"]
 
 
 def test_build_argv_install_components():
     argv = commands.build_argv("install", positional=["ksu", "vector"])
-    assert argv == ["/data/local/tmp/xpad2", "install", "ksu", "vector"]
+    assert argv == [commands.XPAD2_DEVICE_PATH, "install", "ksu", "vector"]
 
 
 def test_shell_quote_wraps_spaces():

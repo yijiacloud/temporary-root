@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 
@@ -30,7 +31,7 @@ def _find_adb() -> str:
 
 
 ADB_BIN = (_find_adb(),)
-XPAD2_DEVICE_PATH = "/data/local/tmp/xpad2"
+XPAD2_DEVICE_PATH = f"/data/local/tmp/xpad2-{date.today():%Y%m%d}"
 
 
 def _find_local_xpad2() -> str | None:

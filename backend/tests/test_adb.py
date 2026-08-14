@@ -3,7 +3,7 @@ from app import adb
 
 def test_xpad2_argv_prepends_device_path():
     assert adb.xpad2_argv("status", "--json") == [
-        "/data/local/tmp/xpad2", "status", "--json",
+        adb.XPAD2_DEVICE_PATH, "status", "--json",
     ]
 
 

@@ -75,11 +75,11 @@ export default function App() {
   }
 
   function startInstall() {
-    if (selected.size === 0 || running) return;
+    if (running) return;
     setRunning(true);
     setDone(false);
     setLines([]);
-    const cmd = "install " + [...selected].join(" ");
+    const cmd = selected.size ? "install " + [...selected].join(" ") : "install";
     wsRef.current = api.openRunSocket(
       cmd,
       (stream, line) => setLines((p) => [...p, { stream, line }]),
@@ -169,7 +169,7 @@ export default function App() {
         <section className="card">
           <div className="card-title">安装组件</div>
           <div className="card-subtitle">
-            勾选要安装的组件，点击「开始安装」下发到设备
+            可选：勾选要安装的组件；不勾选则直接安装默认完整套装
           </div>
           <div className="flex flex-wrap gap-2">
             {components.map((c) => {
@@ -193,11 +193,13 @@ export default function App() {
           <button
             className="btn btn-filled"
             onClick={startInstall}
-            disabled={selected.size === 0 || running}
+            disabled={running}
           >
             {running
               ? "安装中…"
-              : `开始安装${selected.size ? ` (${selected.size})` : ""}`}
+              : selected.size
+                ? `开始安装 (${selected.size})`
+                : "直接安装（默认完整套装）"}
           </button>
           {running && (
             <button className="btn btn-outlined" onClick={stopInstall}>
