@@ -8,7 +8,7 @@
 React 前端 (Vite + TS + MD3)  ← REST + WebSocket →  FastAPI 后端  ← adb →  设备 /data/local/tmp/xpad2
 ```
 
-前端只保留核心操作面板：设备选择、组件多选（install 入参）、临时 Root 状态仪表、一键安装与实时日志。后端启动时自动把 `tools\xpad2\xpad2` 推送到设备的 `/data/local/tmp/xpad2`。
+前端只保留核心操作面板：设备选择、组件多选（install 入参）、临时 Root 状态仪表、一键安装与实时日志。执行一键 root（install）时，后端才把 `tools\xpad2\xpad2` 推送到设备的 `/data/local/tmp/xpad2`。
 
 ## 前置
 
@@ -27,9 +27,8 @@ React 前端 (Vite + TS + MD3)  ← REST + WebSocket →  FastAPI 后端  ← ad
 
 双击 **`start.bat`**：
 
-- 自动检测已授权设备并推送 xpad2（真实模式）
 - 启动后端（127.0.0.1:8000）与前端（localhost:5173），并自动打开浏览器
-- 后端启动时也会自动兜底推送 xpad2
+- 启动时**不**推送 xpad2；点击「开始安装」（一键 root）时，后端才先推送 xpad2 再执行 install
 
 无设备演示（mock 模式，install 等命令返回回放数据）：
 

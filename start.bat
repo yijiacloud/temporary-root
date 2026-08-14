@@ -4,7 +4,6 @@ setlocal EnableDelayedExpansion
 set "ROOT=%~dp0"
 set "PY=D:\superroot\python\python.exe"
 set "ADB=%ROOT%tools\platform-tools\adb.exe"
-set "XPAD2=%ROOT%tools\xpad2\xpad2"
 set "BACKEND=%ROOT%backend"
 set "FRONTEND=%ROOT%frontend"
 
@@ -31,11 +30,9 @@ if /i not "%~1"=="mock" (
   set "SERIAL="
   for /f "tokens=1" %%s in ('"%ADB%" devices ^| findstr /r "device$"') do set "SERIAL=%%s"
   if defined SERIAL (
-    echo [*] device !SERIAL! detected, pushing xpad2...
-    "%ADB%" -s !SERIAL! push "%XPAD2%" /data/local/tmp/xpad2
-    "%ADB%" -s !SERIAL! shell chmod 700 /data/local/tmp/xpad2
+    echo [*] device !SERIAL! detected
   ) else (
-    echo [!] no authorized device, skip push
+    echo [!] no authorized device detected
   )
 ) else (
   echo [*] mock mode, no device needed
