@@ -1,16 +1,15 @@
 # Downloads Android Platform Tools (adb) into ./tools/platform-tools
+# Delegates to download_adb.py (Python urllib) for a reliable TLS stack.
 $ErrorActionPreference = "Stop"
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dest = Join-Path $base "platform-tools"
+$py = "D:\superroot\python\python.exe"
+if (-not (Test-Path $py)) { $py = "python" }
+
 if (-not (Test-Path (Join-Path $dest "adb.exe"))) {
-    $url = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
-    $zip = Join-Path $base "platform-tools.zip"
     Write-Host "Downloading platform-tools..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $url -OutFile $zip
-    Expand-Archive -Path $zip -DestinationPath $base -Force
-    Remove-Item $zip
+    & $py (Join-Path $base "download_adb.py")
 }
+
 Write-Host "adb available at: $dest\adb.exe" -ForegroundColor Green
 & "$dest\adb.exe" version

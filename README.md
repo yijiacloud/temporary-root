@@ -18,17 +18,33 @@ React 前端 (Vite + TS + Tailwind)  ← REST + WebSocket →  FastAPI 后端  �
 
 ## 首次准备
 
-```powershell
-# 1) 下载 adb 到 tools/platform-tools
-.\tools\bootstrap.ps1
+依赖已固化在项目内，无需额外下载：
 
-# 2) 推送 xpad2 二进制到设备（首次安装或恢复现场）
-.\tools\push-xpad2.ps1 -Binary <path-to-xpad2-vX.Y.Z-android-arm64> [-Serial <serial>]
+- adb：`tools\platform-tools\adb.exe`（缺失时运行 `tools\bootstrap.ps1` 补齐）
+- xpad2 二进制：`tools\xpad2\xpad2`（已固定）
+
+首次连接设备时推送一次：
+
+```powershell
+.\tools\push-xpad2.ps1        # 默认用 tools\xpad2\xpad2；可加 -Serial <serial>
 ```
 
-> 若设备上已有可正常工作的 xpad2，请改用设备内更新（`xpad2 update`），不要用裸 push 覆盖。
+> 若设备上已有可正常工作的 xpad2，请改用设备内更新（`xpad2 update`），不要裸 push 覆盖。
 
-## 启动
+## 一键启动
+
+双击 **`start.bat`**：
+
+- 自动检测已授权设备并推送 xpad2（真实模式）
+- 启动后端（127.0.0.1:8000）与前端（127.0.0.1:5173），并自动打开浏览器
+
+无设备演示（mock 模式，所有命令返回回放数据）：
+
+```powershell
+.\start-mock.bat
+```
+
+### 手动启动（可选）
 
 ```powershell
 # 终端 1：后端（用 D 盘 Python）

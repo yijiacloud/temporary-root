@@ -1,14 +1,18 @@
-# Pushes a downloaded xpad2 arm64 ELF to the device.
+# Pushes the vendored xpad2 arm64 ELF to the device.
 param(
   [string]$Binary = "",
   [string]$Serial = ""
 )
 $ErrorActionPreference = "Stop"
+$base = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $Binary) {
-  Write-Host "Usage: push-xpad2.ps1 -Binary <path-to-xpad2-arm64> [-Serial <serial>]" -ForegroundColor Yellow
-  exit 1
+  $Binary = Join-Path $base "xpad2\xpad2"
+  if (-not (Test-Path $Binary)) {
+    Write-Host "Missing vendored xpad2 binary ($Binary). Put it there or pass -Binary <path>." -ForegroundColor Yellow
+    exit 1
+  }
 }
-$adb = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "platform-tools\adb.exe"
+$adb = Join-Path $base "platform-tools\adb.exe"
 if (-not (Test-Path $adb)) {
   Write-Host "Missing adb. Run tools/bootstrap.ps1 first." -ForegroundColor Red
   exit 1
