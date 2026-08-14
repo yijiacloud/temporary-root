@@ -419,3 +419,49 @@ body {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .dots button.active { width: 26px; background: var(--md-primary); }
+
+/* ============ MD3 dialog ============ */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: fadeIn 0.2s ease;
+}
+.dialog {
+  background: var(--md-surface-container-high);
+  border-radius: 28px;
+  padding: 1.5rem;
+  min-width: 300px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: var(--elevation-3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  text-align: center;
+  animation: dialogIn 0.28s cubic-bezier(0.2, 0, 0, 1);
+}
+.dialog-title { font-size: 1.15rem; font-weight: 600; color: var(--md-on-surface); }
+.dialog-body { font-size: 0.88rem; color: var(--md-on-surface-variant); line-height: 1.6; }
+.dialog-actions { display: flex; justify-content: center; gap: 8px; width: 100%; margin-top: 0.4rem; }
+.dialog-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 28px;
+  background: rgba(46, 160, 67, 0.18);
+  color: #56d364;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialogIn {
+  from { opacity: 0; transform: scale(0.92) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}

@@ -12,6 +12,7 @@ dist/
 
 # Runtime state
 .xpad2-console-device.json
+logs/
 
 # Vendored binaries (large, device-specific, fetched by bootstrap)
 tools/xpad2/

@@ -414,6 +414,27 @@ export default function App() {
           />
         </div>
       </footer>
+
+      {done && (
+        <div className="dialog-overlay" onClick={() => setDone(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="dialog-icon">✓</div>
+            <div className="dialog-title">安装完成</div>
+            <div className="dialog-body">
+              组件已成功安装。请重启设备使临时 Root 生效。
+            </div>
+            <div className="dialog-actions">
+              <button
+                className="btn btn-filled"
+                style={{ height: 40, padding: "0 28px" }}
+                onClick={() => setDone(false)}
+              >
+                知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
