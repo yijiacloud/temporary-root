@@ -35,5 +35,6 @@ def test_run_command_without_mock_uses_real_adb(clean_env, monkeypatch):
 
     monkeypatch.setattr(adb.subprocess, "run", fake_run)
     adb.run_command(["status", "--json"], serial="abc123")
-    assert calls and calls[0][0] == "adb"
+    assert calls and calls[0][0] == adb.ADB_BIN[0]
+    assert calls[0][0].endswith(("adb", "adb.exe"))
     assert "-s" in calls[0] and "abc123" in calls[0]

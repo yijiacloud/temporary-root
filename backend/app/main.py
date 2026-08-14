@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +12,22 @@ from pydantic import BaseModel
 
 from . import adb, commands, device, executor, snapshot
 
-app = FastAPI(title="xpad2 Web Console")
+logger = logging.getLogger("xpad2-console")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # On startup, push the vendored xpad2 ELF to /data/local/tmp so the
+    # device is ready without a separate step (real mode only).
+    pushed = adb.ensure_xpad2_pushed()
+    if pushed.get("pushed"):
+        logger.info("xpad2 pushed to %s", pushed.get("serial"))
+    else:
+        logger.info("xpad2 auto-push skipped: %s", pushed.get("reason"))
+    yield
+
+
+app = FastAPI(title="临时root", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
