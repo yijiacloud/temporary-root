@@ -1,0 +1,4 @@
+# Force Windows line endings for scripts cmd/PowerShell parse strictly
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
