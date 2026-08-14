@@ -40,8 +40,9 @@ def run_sync(device_argv: list[str], serial: str | None) -> CommandResult:
 
 
 async def iter_lines(device_argv: list[str], serial: str | None):
-    """Yield (stream, line) pairs. In mock mode replays a canned multi-line
-    run; in real mode streams a live adb subprocess line by line."""
+    """Yield (stream, line) pairs live as they arrive. In mock mode replays a
+    canned multi-line run; in real mode streams an adb subprocess line-by-line
+    without waiting for it to finish."""
     if adb._mock():
         res = adb.run_command(device_argv, serial=serial)
         for line in res.stdout.splitlines():
@@ -51,6 +52,7 @@ async def iter_lines(device_argv: list[str], serial: str | None):
         return
 
     import asyncio
+
     argv = [*adb.ADB_BIN, *((["-s", serial]) if serial else []), "shell", *device_argv]
     proc = await asyncio.create_subprocess_exec(
         *argv,
@@ -59,25 +61,33 @@ async def iter_lines(device_argv: list[str], serial: str | None):
     )
     assert proc.stdout is not None and proc.stderr is not None
 
-    async def _pump(stream, name):
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            yield (name, line.decode(errors="replace").rstrip("\n"))
+    queue: asyncio.Queue = asyncio.Queue()
 
-    async def _collect():
-        async def all_of(pump):
-            out = []
-            async for item in pump:
-                out.append(item)
-            return out
-        return await asyncio.gather(all_of(_pump(proc.stdout, "stdout")),
-                                    all_of(_pump(proc.stderr, "stderr")))
+    async def pump(stream, name):
+        try:
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                text = line.decode(errors="replace").rstrip("\r\n")
+                if text:
+                    await queue.put((name, text))
+        except asyncio.CancelledError:
+            pass
 
-    stdout_lines, stderr_lines = await _collect()
+    readers = asyncio.gather(pump(proc.stdout, "stdout"), pump(proc.stderr, "stderr"))
+
+    while True:
+        done = readers.done()
+        if not queue.empty():
+            yield await queue.get()
+            continue
+        if done:
+            break
+        # wait for the next line (or a short tick to re-check reader status)
+        try:
+            yield await asyncio.wait_for(queue.get(), timeout=0.25)
+        except asyncio.TimeoutError:
+            continue
+
     await proc.wait()
-    for item in stdout_lines:
-        yield item
-    for item in stderr_lines:
-        yield item
