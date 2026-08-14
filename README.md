@@ -68,3 +68,14 @@ cd backend
 
 - 默认仅监听 127.0.0.1，请勿暴露公网。
 - 临时 Root 链可能导致设备重启或 kernel panic，仅在你有权处置的设备上使用。
+
+## 致谢 · 原项目
+
+本工具是 **[xpad2-cli](https://github.com/yoyicue/xpad2-cli)** 的图形化前端封装：
+
+- 设备端真正的 IonStack 内核利用与 KernelSU / SukiSU 安装均由其提供的 `xpad2` 二进制完成；
+- 本项目只提供 Python + Web 前端，通过 adb 驱动该二进制，**不包含、也不修改**其核心 Root 逻辑；
+- 原项目作者：[**@yoyicue**](https://github.com/yoyicue)，仓库：<https://github.com/yoyicue/xpad2-cli>
+
+Root 链的版权、风险与责任归属于原项目及其适用许可，使用前请务必阅读原仓库的许可与免责声明。
+
