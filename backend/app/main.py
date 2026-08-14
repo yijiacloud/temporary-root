@@ -87,10 +87,32 @@ def select_device(body: dict) -> dict:
     return {"ok": True, "selected_serial": serial}
 
 
+def _neutral_status() -> dict:
+    """Fallback snapshot when the device-side xpad2 is missing or returned no
+    JSON (e.g. before the first one-click root push)."""
+    return {
+        "product_version": None,
+        "boot_id": None,
+        "selinux": None,
+        "temporary_root": {
+            "id": "temporary-root",
+            "state": "absent",
+            "detail": "设备尚未安装 xpad2；点击「开始安装」会自动推送到 /data/local/tmp",
+        },
+        "components": [],
+    }
+
+
 @app.get("/api/status")
 def get_status() -> dict:
     res = executor.run_sync([adb.XPAD2_DEVICE_PATH, "status", "--json"], _serial())
-    snap = snapshot.parse_status(json.loads(res.stdout))
+    raw = res.stdout.strip()
+    if not raw:
+        return _neutral_status()
+    try:
+        snap = snapshot.parse_status(json.loads(raw))
+    except json.JSONDecodeError:
+        return _neutral_status()
     return {
         "product_version": snap.product_version,
         "boot_id": snap.boot_id,
