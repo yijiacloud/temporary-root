@@ -56,10 +56,10 @@ start "xpad2-frontend" cmd /k "cd /d %FRONTEND% && npm run dev"
 
 rem ---- 4. open browser ----
 timeout /t 4 /nobreak >nul
-start http://127.0.0.1:5173
+start http://localhost:5173
 
 echo.
-echo [OK] 后端 http://127.0.0.1:8000   前端 http://127.0.0.1:5173
+echo [OK] 后端 http://127.0.0.1:8000   前端 http://localhost:5173
 echo      浏览器已打开。关闭对应窗口即可停止服务。
 echo.
 pause
