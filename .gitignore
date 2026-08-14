@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pylibs/
+.pytest_cache/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+
+# Runtime state
+.xpad2-console-device.json
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
