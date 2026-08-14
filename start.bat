@@ -11,7 +11,7 @@ set "FRONTEND=%ROOT%frontend"
 cd /d "%ROOT%"
 
 echo ========================================
-echo   xpad2 Console
+echo   LinShiRoot (temporary root)
 echo ========================================
 echo.
 

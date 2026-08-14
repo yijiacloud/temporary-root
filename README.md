@@ -1,14 +1,14 @@
-# xpad2 Console
+# 临时root
 
-本地 Web 控制台，通过 adb 驱动设备上的 xpad2 二进制。后端 FastAPI + 前端 React(Vite + TypeScript + Tailwind)。
+一个本地 Web 工具，通过 adb 驱动设备上的 xpad2 二进制，用 IonStack 内核利用取得**临时 Root** 并安装 KernelSU / SukiSU 等组件。前端采用 **Material Design 3** 设计语言（参考 `md3.html`）。
 
 ## 架构
 
 ```
-React 前端 (Vite + TS + Tailwind)  ← REST + WebSocket →  FastAPI 后端  ← adb →  设备 /data/local/tmp/xpad2
+React 前端 (Vite + TS + MD3)  ← REST + WebSocket →  FastAPI 后端  ← adb →  设备 /data/local/tmp/xpad2
 ```
 
-后端把 xpad2 的每个命令封装成 REST/WebSocket 接口，前端提供设备下拉、组件状态仪表盘、命令执行面板和实时日志控制台。
+前端只保留核心操作面板：设备选择、组件多选（install 入参）、临时 Root 状态仪表、一键安装与实时日志。后端启动时自动把 `tools\xpad2\xpad2` 推送到设备的 `/data/local/tmp/xpad2`。
 
 ## 前置
 
@@ -23,22 +23,15 @@ React 前端 (Vite + TS + Tailwind)  ← REST + WebSocket →  FastAPI 后端  �
 - adb：`tools\platform-tools\adb.exe`（缺失时运行 `tools\bootstrap.ps1` 补齐）
 - xpad2 二进制：`tools\xpad2\xpad2`（已固定）
 
-首次连接设备时推送一次：
-
-```powershell
-.\tools\push-xpad2.ps1        # 默认用 tools\xpad2\xpad2；可加 -Serial <serial>
-```
-
-> 若设备上已有可正常工作的 xpad2，请改用设备内更新（`xpad2 update`），不要裸 push 覆盖。
-
 ## 一键启动
 
 双击 **`start.bat`**：
 
 - 自动检测已授权设备并推送 xpad2（真实模式）
-- 启动后端（127.0.0.1:8000）与前端（127.0.0.1:5173），并自动打开浏览器
+- 启动后端（127.0.0.1:8000）与前端（localhost:5173），并自动打开浏览器
+- 后端启动时也会自动兜底推送 xpad2
 
-无设备演示（mock 模式，所有命令返回回放数据）：
+无设备演示（mock 模式，install 等命令返回回放数据）：
 
 ```powershell
 .\start-mock.bat
@@ -47,7 +40,7 @@ React 前端 (Vite + TS + Tailwind)  ← REST + WebSocket →  FastAPI 后端  �
 ### 手动启动（可选）
 
 ```powershell
-# 终端 1：后端（用 D 盘 Python）
+# 终端 1：后端
 & "D:\superroot\python\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --app-dir backend
 
 # 终端 2：前端
@@ -56,16 +49,14 @@ npm install
 npm run dev
 ```
 
-浏览器打开 http://127.0.0.1:5173 。
+浏览器打开 http://localhost:5173 。
 
-## 无设备演示（mock 模式）
+## 使用
 
-后端以 mock 模式启动时，所有命令返回内置回放数据，无需设备/ADB：
-
-```powershell
-$env:XPAD2_MOCK = "1"
-& "D:\superroot\python\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --app-dir backend
-```
+1. 顶部「设备」下拉选择已授权的目标设备。
+2. 在「安装组件」中勾选要安装的组件（`完整套装`/`KernelSU`/`SukiSU` 等）。
+3. 点击「开始安装」，实时日志会滚动显示临时 Root 探测与安装进度。
+4. 安装完成后按提示重启设备使 Root 生效。
 
 ## 测试
 
