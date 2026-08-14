@@ -23,12 +23,15 @@ interface TempRoot {
 }
 
 interface Status {
-  product_version?: string;
-  selinux?: string;
+  product_version?: string | null;
+  selinux?: string | null;
   temporary_root?: TempRoot;
 }
 
+type Page = "cover" | "scan" | "root";
+
 export default function App() {
+  const [page, setPage] = useState<Page>("cover");
   const [devices, setDevices] = useState<Device[]>([]);
   const [serial, setSerial] = useState<string | null>(null);
   const [components, setComponents] = useState<string[]>([]);
@@ -42,15 +45,48 @@ export default function App() {
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    api.getDevices().then((d) => setDevices(d.devices)).catch(() => {});
+    document.documentElement.classList.toggle("light", theme === "light");
+  }, [theme]);
+
+  // scan page: poll adb devices live
+  useEffect(() => {
+    if (page !== "scan") return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    async function scan() {
+      if (cancelled) return;
+      try {
+        const d = await api.getDevices();
+        if (cancelled) return;
+        setDevices(d.devices);
+        const online = d.devices.filter((x) => x.state === "device");
+        if (online.length > 0) {
+          const s = online[0].serial;
+          setSerial(s);
+          api.selectDevice(s).catch(() => {});
+          setPage("root");
+          return;
+        }
+      } catch {
+        /* backend not up yet; keep polling */
+      }
+      timer = setTimeout(scan, 1200);
+    }
+    scan();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [page]);
+
+  // root page: load components + status
+  useEffect(() => {
+    if (page !== "root") return;
     api.getComponents().then((c) => setComponents(c.components)).catch(() => {});
     refreshStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("light", theme === "light");
-  }, [theme]);
+  }, [page]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -106,20 +142,6 @@ export default function App() {
         <div className="header-icon">⚡</div>
         <span className="header-title">临时root</span>
         <div className="ml-auto flex items-center gap-3">
-          <div className="field">
-            <span className="field-label">设备</span>
-            <select
-              value={serial ?? ""}
-              onChange={(e) => onSelectSerial(e.target.value || null)}
-            >
-              <option value="">未选择</option>
-              {devices.map((d) => (
-                <option key={d.serial} value={d.serial}>
-                  {d.serial} · {d.model ?? d.state}
-                </option>
-              ))}
-            </select>
-          </div>
           <button
             className="btn btn-outlined"
             style={{ height: 40, padding: "0 14px" }}
@@ -130,114 +152,268 @@ export default function App() {
         </div>
       </header>
 
-      <main
-        className="flex-1 space-y-4 overflow-y-auto p-6"
-        style={{ maxWidth: 920, width: "100%", margin: "0 auto" }}
-      >
-        {/* 状态卡片 */}
-        <section className="card">
-          <div className="card-title">临时 Root 状态</div>
-          <div className="card-subtitle">
-            通过 IonStack 内核利用在本次启动周期内取得临时 Root 权限
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`pill ${rooted ? "ok" : "off"}`}>
-              <span className="pill-dot" />
-              {rooted ? "已取得临时 Root" : "未激活 Root"}
-            </span>
-            {status?.selinux && (
-              <span className="pill off">
-                <span className="pill-dot" />
-                SELinux {status.selinux}
-              </span>
-            )}
-            {status?.product_version && (
-              <span className="pill info">
-                <span className="pill-dot" />
-                {status.product_version}
-              </span>
-            )}
-          </div>
-          {status?.temporary_root?.detail && (
-            <div className="mt-3 text-sm" style={{ color: "var(--md-on-surface-variant)" }}>
-              {status.temporary_root.detail}
-            </div>
-          )}
-        </section>
-
-        {/* 安装组件 */}
-        <section className="card">
-          <div className="card-title">安装组件</div>
-          <div className="card-subtitle">
-            可选：勾选要安装的组件；不勾选则直接安装默认完整套装
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {components.map((c) => {
-              const sel = selected.has(c);
-              return (
-                <button
-                  key={c}
-                  className={`chip ${sel ? "selected" : ""}`}
-                  onClick={() => toggleComponent(c)}
-                >
-                  <span className="chip-dot" />
-                  {COMPONENT_META[c] ?? c}
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* 操作 */}
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            className="btn btn-filled"
-            onClick={startInstall}
-            disabled={running}
-          >
-            {running
-              ? "安装中…"
-              : selected.size
-                ? `开始安装 (${selected.size})`
-                : "直接安装（默认完整套装）"}
-          </button>
-          {running && (
-            <button className="btn btn-outlined" onClick={stopInstall}>
-              停止
-            </button>
-          )}
-          {selected.size > 0 && !running && (
-            <span
-              className="text-sm"
-              style={{ color: "var(--md-on-surface-variant)" }}
-            >
-              已选：{[...selected].map((c) => COMPONENT_META[c] ?? c).join("、")}
-            </span>
-          )}
-        </div>
-
-        {/* 日志 */}
-        <section className="card" style={{ padding: "0.6rem" }}>
-          <div className="log" ref={logRef}>
-            {lines.length === 0 && !running && (
-              <div className="log-line" style={{ color: "var(--md-outline)" }}>
-                等待开始……
-              </div>
-            )}
-            {lines.map((l, i) => (
-              <div
-                key={i}
-                className={`log-line ${l.stream === "stderr" ? "err" : ""}`}
+      <main className={`page ${page === "root" ? "top" : ""}`} key={page}>
+        {page === "cover" && (
+          <>
+            <div className="cover-icon">⚡</div>
+            <h1 className="cover-title">临时root</h1>
+            <p className="cover-sub">
+              通过 IonStack 内核利用，为 XPad2 / PD2P 学而思学习平板取得临时
+              Root 并安装 KernelSU / SukiSU
+            </p>
+            <p className="cover-author">
+              原作者{" "}
+              <a
+                href="https://github.com/yoyicue/xpad2-cli"
+                target="_blank"
+                rel="noreferrer"
               >
-                {l.stream === "stderr" ? "[err] " : ""}
-                {l.line || "\u00a0"}
+                @yoyicue · xpad2-cli
+              </a>
+            </p>
+            <button
+              className="btn btn-filled"
+              style={{ marginTop: "0.5rem", padding: "0 40px" }}
+              onClick={() => setPage("scan")}
+            >
+              开始
+            </button>
+          </>
+        )}
+
+        {page === "scan" && (
+          <>
+            <div className="spinner lg" />
+            <div className="scan-title">正在寻找设备…</div>
+            <p className="scan-status">
+              正在通过 adb 实时扫描已连接的设备。
+              <br />
+              请确保设备已通过 USB 或无线调试连接，并在设备端允许本计算机的调试授权。
+            </p>
+            {devices.length > 0 ? (
+              <div className="card" style={{ minWidth: 300, textAlign: "left" }}>
+                {devices
+                  .filter((d) => d.state === "device")
+                  .map((d) => (
+                    <div
+                      key={d.serial}
+                      style={{
+                        fontFamily: "ui-monospace, monospace",
+                        fontSize: "0.85rem",
+                        padding: "4px 0",
+                      }}
+                    >
+                      ✓ {d.serial} · {d.model ?? d.state}
+                    </div>
+                  ))}
+                {devices.every((d) => d.state !== "device") && (
+                  <div className="scan-status">
+                    检测到设备但未授权，请在设备上点击「允许调试」
+                  </div>
+                )}
               </div>
-            ))}
-            {running && <div className="log-line">▍</div>}
-            {done && <div className="log-line done">—— 完成 ——</div>}
+            ) : (
+              <div className="scan-status">尚未检测到设备，正在扫描…</div>
+            )}
+          </>
+        )}
+
+        {page === "root" && (
+          <div
+            className="w-full"
+            style={{
+              maxWidth: 920,
+              margin: "0 auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1rem",
+            }}
+          >
+            {/* device bar */}
+            <div
+              className="card"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ textAlign: "left" }}>
+                <div className="card-title" style={{ marginBottom: 0 }}>
+                  设备
+                </div>
+                <div
+                  style={{
+                    fontFamily: "ui-monospace, monospace",
+                    fontSize: "0.85rem",
+                    color: "var(--md-on-surface-variant)",
+                  }}
+                >
+                  {serial ?? "未选择"}
+                </div>
+              </div>
+              <button
+                className="btn btn-outlined"
+                style={{ height: 40 }}
+                onClick={() => setPage("scan")}
+              >
+                重新寻找
+              </button>
+            </div>
+
+            {/* status card */}
+            <section className="card">
+              <div className="card-title" style={{ textAlign: "left" }}>
+                临时 Root 状态
+              </div>
+              <div
+                className="card-subtitle"
+                style={{ textAlign: "left" }}
+              >
+                通过 IonStack 内核利用在本次启动周期内取得临时 Root 权限
+              </div>
+              <div
+                className="flex flex-wrap items-center gap-2"
+                style={{ justifyContent: "flex-start" }}
+              >
+                <span className={`pill ${rooted ? "ok" : "off"}`}>
+                  <span className="pill-dot" />
+                  {rooted ? "已取得临时 Root" : "未激活 Root"}
+                </span>
+                {status?.selinux && (
+                  <span className="pill off">
+                    <span className="pill-dot" />
+                    SELinux {status.selinux}
+                  </span>
+                )}
+                {status?.product_version && (
+                  <span className="pill info">
+                    <span className="pill-dot" />
+                    {status.product_version}
+                  </span>
+                )}
+              </div>
+              {status?.temporary_root?.detail && (
+                <div
+                  className="mt-3 text-sm"
+                  style={{
+                    color: "var(--md-on-surface-variant)",
+                    textAlign: "left",
+                  }}
+                >
+                  {status.temporary_root.detail}
+                </div>
+              )}
+            </section>
+
+            {/* component selection */}
+            <section className="card">
+              <div className="card-title" style={{ textAlign: "left" }}>
+                安装组件
+              </div>
+              <div className="card-subtitle" style={{ textAlign: "left" }}>
+                可选：勾选要安装的组件；不勾选则直接安装默认完整套装
+              </div>
+              <div
+                className="flex flex-wrap gap-2"
+                style={{ justifyContent: "flex-start" }}
+              >
+                {components.map((c) => {
+                  const sel = selected.has(c);
+                  return (
+                    <button
+                      key={c}
+                      className={`chip ${sel ? "selected" : ""}`}
+                      onClick={() => toggleComponent(c)}
+                    >
+                      <span className="chip-dot" />
+                      {COMPONENT_META[c] ?? c}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* actions */}
+            <div
+              className="flex flex-wrap items-center gap-3"
+              style={{ justifyContent: "flex-start" }}
+            >
+              <button
+                className="btn btn-filled"
+                onClick={startInstall}
+                disabled={running}
+              >
+                {running
+                  ? "安装中…"
+                  : selected.size
+                    ? `开始安装 (${selected.size})`
+                    : "直接安装（默认完整套装）"}
+              </button>
+              {running && (
+                <button className="btn btn-outlined" onClick={stopInstall}>
+                  停止
+                </button>
+              )}
+              {selected.size > 0 && !running && (
+                <span
+                  className="text-sm"
+                  style={{ color: "var(--md-on-surface-variant)" }}
+                >
+                  已选：{[...selected].map((c) => COMPONENT_META[c] ?? c).join("、")}
+                </span>
+              )}
+            </div>
+
+            {/* log */}
+            <section className="card" style={{ padding: "0.6rem" }}>
+              <div className="log" ref={logRef} style={{ textAlign: "left" }}>
+                {lines.length === 0 && !running && (
+                  <div
+                    className="log-line"
+                    style={{ color: "var(--md-outline)" }}
+                  >
+                    等待开始……
+                  </div>
+                )}
+                {lines.map((l, i) => (
+                  <div
+                    key={i}
+                    className={`log-line ${l.stream === "stderr" ? "err" : ""}`}
+                  >
+                    {l.stream === "stderr" ? "[err] " : ""}
+                    {l.line || "\u00a0"}
+                  </div>
+                ))}
+                {running && <div className="log-line">▍</div>}
+                {done && <div className="log-line done">—— 完成 ——</div>}
+              </div>
+            </section>
           </div>
-        </section>
+        )}
       </main>
+
+      <footer>
+        <div className="dots">
+          <button
+            aria-label="封面"
+            className={page === "cover" ? "active" : ""}
+            onClick={() => !running && setPage("cover")}
+          />
+          <button
+            aria-label="寻找设备"
+            className={page === "scan" ? "active" : ""}
+            onClick={() => !running && setPage("scan")}
+          />
+          <button
+            aria-label="临时 Root"
+            className={page === "root" ? "active" : ""}
+            onClick={() => !running && setPage("root")}
+          />
+        </div>
+      </footer>
     </div>
   );
 }

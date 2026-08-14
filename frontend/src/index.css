@@ -337,3 +337,85 @@ body {
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ============ circular progress spinner ============ */
+.spinner {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 4px solid var(--md-surface-container-highest);
+  border-top-color: var(--md-primary);
+  animation: spin 0.9s linear infinite;
+}
+.spinner.lg { width: 92px; height: 92px; border-width: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============ PPT-style slide pages ============ */
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  gap: 1.1rem;
+  animation: pageIn 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto;
+}
+.page.top { justify-content: flex-start; }
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(22px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cover-icon {
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  display: grid;
+  place-items: center;
+  font-size: 46px;
+  box-shadow: var(--elevation-2);
+}
+.cover-title {
+  font-size: clamp(2.4rem, 9vw, 4rem);
+  font-weight: 700;
+  color: var(--md-on-surface);
+  letter-spacing: 0.02em;
+}
+.cover-sub {
+  font-size: 1rem;
+  color: var(--md-on-surface-variant);
+  max-width: 440px;
+  line-height: 1.6;
+}
+.cover-author {
+  font-size: 0.88rem;
+  color: var(--md-on-surface-variant);
+}
+.cover-author a {
+  color: var(--md-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+.cover-author a:hover { text-decoration: underline; }
+
+.scan-title { font-size: 1.3rem; font-weight: 600; color: var(--md-on-surface); }
+.scan-status { font-size: 0.9rem; color: var(--md-on-surface-variant); max-width: 420px; line-height: 1.6; }
+
+/* ============ page dots indicator ============ */
+.dots { display: flex; gap: 8px; justify-content: center; padding: 0 0 1rem; }
+.dots button {
+  border: none;
+  cursor: pointer;
+  height: 8px;
+  width: 8px;
+  border-radius: 4px;
+  padding: 0;
+  background: var(--md-outline-variant);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.dots button.active { width: 26px; background: var(--md-primary); }
