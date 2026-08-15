@@ -117,17 +117,18 @@ def run_command(args: list[str], serial: str | None = None) -> AdbResult:
     the xpad2 path or a bare shell builtin-style command)."""
     if _mock():
         key = " ".join(arg for arg in args if not arg.startswith("/data/local/tmp"))
-        if "app_process" in key:
+        if "--backend" in key:
             return AdbResult(
                 stdout=(
-                    "[+] ZnxxInstaller install\n"
-                    "→ 构造 Request(INSTALL_APP_ID, type=5)\n"
-                    "→ 经 content://com.tal.pad.znxxservice.binder_call_authorities 提交\n"
-                    "✓ APK 已静默安装\n"
+                    "xpad-install install --backend\n"
+                    "[+] INSTALL SUCCESS\n"
+                    "package=com.example.target\n"
                 ),
                 stderr="",
                 exit_code=0,
             )
+        if key == "cleanup":
+            return AdbResult(stdout="[+] cleanup 完成\n", stderr="", exit_code=0)
         if key not in _MOCK_OUTPUTS:
             head = key.split(" ", 1)[0]
             if head in _MOCK_OUTPUTS:  # e.g. "install ksu suu" -> "install"
@@ -201,19 +202,61 @@ def ensure_xpad2_pushed(serial: str | None = None) -> dict:
     }
 
 
-# ============ 安装 Apps（ZnxxInstaller 静默安装）============
-# 逆向自 com.tal.tool.ZnxxInstaller.main(String[])：
-#   命令 = install <apk路径> [包名] / uninstall <pkg> / check
-# 无 Context 时反射 ActivityThread.systemMain() 拿系统上下文，经
-# content://com.tal.pad.znxxservice.binder_call_authorities 的 Binder 后门调用安装。
-ZNXX_CLASS = "com.tal.tool.ZnxxInstaller"
-ZNXX_DEX_REMOTE = "/data/local/tmp/znxx_installer.dex"
+# ============ 安装 Apps（xpad-install ELF 后端）============
+# vendor 自 xpad-safe-install：单文件 OEM APK 安装器，内部封装了
+#   auto   → 走 OEM znxxservice Provider（Binder 后门）
+#   direct → 在 0044 身份里创建 PackageInstaller session
+XPAD_INSTALL_REMOTE = "/data/local/tmp/xpad-install"
 APK_DEVICE_DIR = "/data/local/tmp"
-# 触发命令模板，可用环境变量 XPAD2_APK_INSTALL_CMD 覆盖；{apk} 会被替换为设备内 APK 路径
-APK_INSTALL_CMD = os.environ.get(
-    "XPAD2_APK_INSTALL_CMD",
-    f"CLASSPATH={ZNXX_DEX_REMOTE} app_process /system/bin {ZNXX_CLASS} install {{apk}}",
-)
+
+
+def _find_local_xpad_install() -> str | None:
+    """Vendored xpad-install ELF under tools/xpad-install/."""
+    project_root = Path(__file__).resolve().parent.parent.parent
+    candidate = project_root / "tools" / "xpad-install" / "xpad-install"
+    return str(candidate) if candidate.exists() else None
+
+
+XPAD_INSTALL_LOCAL = _find_local_xpad_install()
+
+
+def ensure_xpad_install_pushed(serial: str | None = None) -> dict:
+    """Push the xpad-install ELF to /data/local/tmp and chmod 755 if missing."""
+    if _mock() or not XPAD_INSTALL_LOCAL:
+        return {"pushed": False, "reason": "mock-or-missing-local-binary"}
+
+    if serial is None:
+        from . import device as _device
+
+        devices = _device.parse_devices(list_devices_raw().stdout)
+        online = [d for d in devices if d.state == "device"]
+        if not online:
+            return {"pushed": False, "reason": "no-authorized-device"}
+        serial = online[0].serial
+
+    check = run_command(
+        ["sh", "-c", f"test -x {XPAD_INSTALL_REMOTE} && echo yes || echo no"], serial
+    )
+    if "yes" in check.stdout:
+        return {"pushed": False, "reason": "already-present", "serial": serial}
+
+    push = subprocess.run(
+        [*ADB_BIN, "-s", serial, "push", XPAD_INSTALL_LOCAL, XPAD_INSTALL_REMOTE],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    chmod = subprocess.run(
+        [*ADB_BIN, "-s", serial, "shell", "chmod", "755", XPAD_INSTALL_REMOTE],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return {
+        "pushed": push.returncode == 0,
+        "serial": serial,
+        "detail": (push.stdout + push.stderr + chmod.stdout + chmod.stderr).strip(),
+    }
 
 
 def push_apk(local_path: str, serial: str | None = None) -> dict:
@@ -231,54 +274,11 @@ def push_apk(local_path: str, serial: str | None = None) -> dict:
     }
 
 
-def install_apk_argv(remote_path: str, pkg: str | None = None) -> list[str]:
-    """Device-side argv that triggers ZnxxInstaller to install an APK."""
-    cmd = APK_INSTALL_CMD.format(apk=remote_path)
-    if pkg:
-        cmd += f" {pkg}"
-    return ["sh", "-c", cmd]
+def install_apk_argv(remote_path: str, backend: str = "auto") -> list[str]:
+    """Device-side argv: xpad-install install --backend <auto|direct> <apk>."""
+    return [XPAD_INSTALL_REMOTE, "install", "--backend", backend, remote_path]
 
 
-def _find_local_znxx_dex() -> str | None:
-    """Vendored com.tal.tool.ZnxxInstaller dex under tools/znxx-installer/."""
-    project_root = Path(__file__).resolve().parent.parent.parent
-    candidate = project_root / "tools" / "znxx-installer" / "znxx_installer.dex"
-    return str(candidate) if candidate.exists() else None
-
-
-ZNXX_DEX_LOCAL = _find_local_znxx_dex()
-
-
-def ensure_znxx_dex_pushed(serial: str | None = None) -> dict:
-    """Push the ZnxxInstaller dex to /data/local/tmp if the device lacks it.
-    Without this dex, `app_process ... ZnxxInstaller` exits immediately with
-    no output (the "flash and nothing happens" symptom)."""
-    if _mock() or not ZNXX_DEX_LOCAL:
-        return {"pushed": False, "reason": "mock-or-missing-local-dex"}
-
-    if serial is None:
-        from . import device as _device
-
-        devices = _device.parse_devices(list_devices_raw().stdout)
-        online = [d for d in devices if d.state == "device"]
-        if not online:
-            return {"pushed": False, "reason": "no-authorized-device"}
-        serial = online[0].serial
-
-    check = run_command(
-        ["sh", "-c", f"test -f {ZNXX_DEX_REMOTE} && echo yes || echo no"], serial
-    )
-    if "yes" in check.stdout:
-        return {"pushed": False, "reason": "already-present", "serial": serial}
-
-    push = subprocess.run(
-        [*ADB_BIN, "-s", serial, "push", ZNXX_DEX_LOCAL, ZNXX_DEX_REMOTE],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    return {
-        "pushed": push.returncode == 0,
-        "serial": serial,
-        "detail": (push.stdout + push.stderr).strip(),
-    }
+def cleanup_argv() -> list[str]:
+    """Device-side argv: xpad-install cleanup."""
+    return [XPAD_INSTALL_REMOTE, "cleanup"]

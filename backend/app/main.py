@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -66,17 +67,17 @@ def _push_reason_line(result: dict) -> str:
     return f"⚠ xpad2 推送跳过：{reason}"
 
 
-def _dex_reason_line(result: dict) -> str:
+def _install_reason_line(result: dict) -> str:
     if result.get("pushed"):
-        return f"→ 已推送 znxx_installer.dex 到 /data/local/tmp (serial={result.get('serial')})"
+        return f"→ 已推送 xpad-install 到 /data/local/tmp (serial={result.get('serial')})"
     reason = result.get("reason")
     if reason == "already-present":
-        return "→ znxx_installer.dex 已在设备上，跳过推送"
-    if reason == "mock-or-missing-local-dex":
-        return "⚠ 未找到本地 znxx_installer.dex (tools/znxx-installer/)，无法推送"
+        return "→ xpad-install 已在设备上，跳过推送"
+    if reason == "mock-or-missing-local-binary":
+        return "⚠ 未找到本地 xpad-install (tools/xpad-install/)，无法推送"
     if reason == "no-authorized-device":
-        return "⚠ 未检测到已授权设备，无法推送 znxx_installer.dex"
-    return f"⚠ dex 推送跳过：{reason}"
+        return "⚠ 未检测到已授权设备，无法推送 xpad-install"
+    return f"⚠ xpad-install 推送跳过：{reason}"
 
 
 @app.get("/api/health")
@@ -235,23 +236,49 @@ async def upload_apk(file: UploadFile = File(...)) -> dict:
     }
 
 
+_PACKAGE_RE = re.compile(r"package=([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)")
+
+
 @app.websocket("/ws/install_apk")
 async def ws_install_apk(ws: WebSocket, remote: str, pkg: str = "") -> None:
-    """触发设备端 ZnxxInstaller 安装指定 APK（流式回传日志）。"""
+    """触发设备端 xpad-install 安装指定 APK（流式回传日志，auto→direct 兜底）。"""
     await ws.accept()
-    if not adb._mock():
-        dex = adb.ensure_znxx_dex_pushed(_serial())
-        await ws.send_json(
-            {"type": "line", "stream": "stdout", "line": _dex_reason_line(dex)}
-        )
-    argv = adb.install_apk_argv(remote, pkg or None)
-    await ws.send_json(
-        {"type": "line", "stream": "stdout", "line": "→ 执行: " + " ".join(argv)}
-    )
-    try:
+
+    async def run(argv: list[str]) -> str:
+        """Stream a device command and collect its stdout."""
+        out: list[str] = []
         async for stream, line in executor.iter_lines(argv, _serial()):
             await ws.send_json({"type": "line", "stream": stream, "line": line})
-        await ws.send_json({"type": "done"})
+            if stream == "stdout":
+                out.append(line)
+        return "\n".join(out)
+
+    async def send(msg: str) -> None:
+        await ws.send_json({"type": "line", "stream": "stdout", "line": msg})
+
+    try:
+        # 1. 推送 xpad-install
+        tool = adb.ensure_xpad_install_pushed(_serial())
+        await send(_install_reason_line(tool))
+
+        # 2. auto 后端
+        await send("→ 安装 (auto 后端)…")
+        out = await run(adb.install_apk_argv(remote, "auto"))
+        match = _PACKAGE_RE.search(out)
+
+        # 3. direct 兜底
+        if not match:
+            await send("⚠ auto 后端未解析出包名，尝试 direct 后端兜底…")
+            match = _PACKAGE_RE.search(await run(adb.install_apk_argv(remote, "direct")))
+
+        # 4. cleanup
+        await run(adb.cleanup_argv())
+
+        if match:
+            await send(f"✓ 安装成功，包名: {match.group(1)}")
+        else:
+            await send("⚠ 未能解析包名，请核对上方日志")
     except WebSocketDisconnect:
         return
+    await ws.send_json({"type": "done"})
     await ws.close()

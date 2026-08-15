@@ -328,7 +328,7 @@ export default function App() {
                     安装 Apps
                   </div>
                   <div className="card-subtitle" style={{ margin: 0 }}>
-                    上传 APK，经 ZnxxInstaller 静默安装到设备
+                    上传 APK，经 xpad-install 静默安装到设备
                   </div>
                 </div>
               </button>
