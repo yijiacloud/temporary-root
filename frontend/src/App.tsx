@@ -28,7 +28,7 @@ interface Status {
   temporary_root?: TempRoot;
 }
 
-type Page = "cover" | "scan" | "choose" | "root" | "install";
+type Page = "cover" | "scan" | "choose" | "root" | "install" | "oneclick";
 
 export default function App() {
   const [page, setPage] = useState<Page>("cover");
@@ -58,6 +58,24 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
   const installWsRef = useRef<WebSocket | null>(null);
   const installLogRef = useRef<HTMLDivElement>(null);
+
+  // oneclick page state
+  const [ocLk, setOcLk] = useState<string | null>(null);
+  const [ocBoot, setOcBoot] = useState<string | null>(null);
+  const [ocApk, setOcApk] = useState<string | null>(null);
+  const [ocUploading, setOcUploading] = useState<"lk" | "boot" | "apk" | null>(null);
+  const [ocStep, setOcStep] = useState(0);
+  const [ocTotal, setOcTotal] = useState(7);
+  const [ocStepName, setOcStepName] = useState("");
+  const [ocRunning, setOcRunning] = useState(false);
+  const [ocDone, setOcDone] = useState(false);
+  const [ocFailed, setOcFailed] = useState<string | null>(null);
+  const [ocLines, setOcLines] = useState<{ stream: string; line: string }[]>([]);
+  const ocLkRef = useRef<HTMLInputElement>(null);
+  const ocBootRef = useRef<HTMLInputElement>(null);
+  const ocApkRef = useRef<HTMLInputElement>(null);
+  const ocWsRef = useRef<WebSocket | null>(null);
+  const ocLogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("light", theme === "light");
@@ -111,6 +129,10 @@ export default function App() {
     if (installLogRef.current)
       installLogRef.current.scrollTop = installLogRef.current.scrollHeight;
   }, [installLines]);
+
+  useEffect(() => {
+    if (ocLogRef.current) ocLogRef.current.scrollTop = ocLogRef.current.scrollHeight;
+  }, [ocLines]);
 
   function refreshStatus() {
     api.getStatus().then(setStatus).catch(() => setStatus(null));
@@ -197,6 +219,58 @@ export default function App() {
   function stopApkInstall() {
     installWsRef.current?.close();
     setInstalling(false);
+  }
+
+  async function uploadOcFile(kind: "lk" | "boot" | "apk", file: File | null) {
+    if (!file) return;
+    setOcUploading(kind);
+    try {
+      const r = await api.uploadOneclick(file);
+      if (kind === "lk") setOcLk(r.local_path);
+      else if (kind === "boot") setOcBoot(r.local_path);
+      else setOcApk(r.local_path);
+    } catch (e) {
+      alert("上传失败：" + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setOcUploading(null);
+    }
+  }
+
+  function startOneclick() {
+    if (ocRunning) return;
+    if (!ocLk || !ocBoot || !ocApk) {
+      alert("请先上传 lk_old、boot 镜像、APK 三个文件");
+      return;
+    }
+    setOcRunning(true);
+    setOcDone(false);
+    setOcFailed(null);
+    setOcLines([]);
+    setOcStep(0);
+    ocWsRef.current = api.openOneclickSocket(
+      ocLk,
+      ocBoot,
+      ocApk,
+      (stream, line) => setOcLines((p) => [...p, { stream, line }]),
+      (step, total, name) => {
+        setOcStep(step);
+        setOcTotal(total);
+        setOcStepName(name);
+      },
+      () => {
+        setOcRunning(false);
+        setOcDone(true);
+      },
+      (message) => {
+        setOcRunning(false);
+        setOcFailed(message);
+      }
+    );
+  }
+
+  function stopOneclick() {
+    ocWsRef.current?.close();
+    setOcRunning(false);
   }
 
   const rootState = status?.temporary_root?.state ?? "unknown";
@@ -329,6 +403,20 @@ export default function App() {
                   </div>
                   <div className="card-subtitle" style={{ margin: 0 }}>
                     上传 APK，经 xpad-install 静默安装到设备
+                  </div>
+                </div>
+              </button>
+              <button
+                className="card choose-card"
+                onClick={() => setPage("oneclick")}
+              >
+                <div className="choose-icon">🔒</div>
+                <div style={{ textAlign: "left" }}>
+                  <div className="card-title" style={{ marginBottom: 4 }}>
+                    一键 Root
+                  </div>
+                  <div className="card-subtitle" style={{ margin: 0 }}>
+                    备份 lk、刷 lk_old、解锁 bootloader、刷 boot、装 APK
                   </div>
                 </div>
               </button>
@@ -472,6 +560,178 @@ export default function App() {
                 ))}
                 {installing && <div className="log-line">▍</div>}
                 {installDone && <div className="log-line done">—— 完成 ——</div>}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {page === "oneclick" && (
+          <div
+            className="w-full"
+            style={{
+              maxWidth: 920,
+              margin: "0 auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1rem",
+            }}
+          >
+            <div
+              className="card"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ textAlign: "left" }}>
+                <div className="card-title" style={{ marginBottom: 0 }}>
+                  一键 Root
+                </div>
+                <div
+                  style={{
+                    fontFamily: "ui-monospace, monospace",
+                    fontSize: "0.85rem",
+                    color: "var(--md-on-surface-variant)",
+                  }}
+                >
+                  {serial ?? "未选择"}
+                </div>
+              </div>
+              <button
+                className="btn btn-outlined"
+                style={{ height: 40 }}
+                onClick={() => setPage("choose")}
+              >
+                返回选择
+              </button>
+            </div>
+
+            <section className="card">
+              <div className="card-title" style={{ textAlign: "left" }}>
+                准备文件
+              </div>
+              <div className="card-subtitle" style={{ textAlign: "left" }}>
+                上传 lk_old（刷入 lk_a）、boot 镜像（刷 boot_a + boot_b）、目标 APK
+              </div>
+              <input
+                ref={ocLkRef}
+                type="file"
+                hidden
+                onChange={(e) => uploadOcFile("lk", e.target.files?.[0] ?? null)}
+              />
+              <input
+                ref={ocBootRef}
+                type="file"
+                hidden
+                onChange={(e) => uploadOcFile("boot", e.target.files?.[0] ?? null)}
+              />
+              <input
+                ref={ocApkRef}
+                type="file"
+                accept=".apk,.APK"
+                hidden
+                onChange={(e) => uploadOcFile("apk", e.target.files?.[0] ?? null)}
+              />
+              <div
+                className="flex flex-wrap items-center gap-3"
+                style={{ justifyContent: "flex-start" }}
+              >
+                <button
+                  className="btn btn-tonal"
+                  style={{ height: 40 }}
+                  onClick={() => ocLkRef.current?.click()}
+                  disabled={ocRunning || ocUploading === "lk"}
+                >
+                  {ocUploading === "lk" ? "上传中…" : ocLk ? "✓ lk_old" : "选择 lk_old"}
+                </button>
+                <button
+                  className="btn btn-tonal"
+                  style={{ height: 40 }}
+                  onClick={() => ocBootRef.current?.click()}
+                  disabled={ocRunning || ocUploading === "boot"}
+                >
+                  {ocUploading === "boot" ? "上传中…" : ocBoot ? "✓ boot" : "选择 boot.img"}
+                </button>
+                <button
+                  className="btn btn-tonal"
+                  style={{ height: 40 }}
+                  onClick={() => ocApkRef.current?.click()}
+                  disabled={ocRunning || ocUploading === "apk"}
+                >
+                  {ocUploading === "apk" ? "上传中…" : ocApk ? "✓ apk" : "选择 APK"}
+                </button>
+              </div>
+            </section>
+
+            <section className="card">
+              <div
+                className="card-title"
+                style={{ textAlign: "left", marginBottom: 8 }}
+              >
+                {ocDone
+                  ? "✅ 全部完成"
+                  : ocFailed
+                  ? "❌ 失败"
+                  : ocRunning
+                  ? `正在执行 ${ocStep}/${ocTotal} — ${ocStepName}`
+                  : "7 步流程"}
+              </div>
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{ width: `${(ocStep / ocTotal) * 100}%` }}
+                />
+              </div>
+              <div
+                className="card-subtitle"
+                style={{ textAlign: "left", marginTop: 8 }}
+              >
+                1 临时Root → 2 备份lk → 3 刷lk_old → 4 fastboot → 5 unlock → 6
+                刷boot → 7 装APK
+              </div>
+            </section>
+
+            <div
+              className="flex flex-wrap items-center gap-3"
+              style={{ justifyContent: "flex-start" }}
+            >
+              <button
+                className="btn btn-filled"
+                onClick={startOneclick}
+                disabled={ocRunning}
+              >
+                {ocRunning ? "执行中…" : "开始一键 Root"}
+              </button>
+              {ocRunning && (
+                <button className="btn btn-outlined" onClick={stopOneclick}>
+                  停止
+                </button>
+              )}
+            </div>
+
+            <section className="card" style={{ padding: "0.6rem" }}>
+              <div className="log" ref={ocLogRef} style={{ textAlign: "left" }}>
+                {ocLines.length === 0 && !ocRunning && (
+                  <div className="log-line" style={{ color: "var(--md-outline)" }}>
+                    等待开始……
+                  </div>
+                )}
+                {ocLines.map((l, i) => (
+                  <div
+                    key={i}
+                    className={`log-line ${l.stream === "stderr" ? "err" : ""}`}
+                  >
+                    {l.stream === "stderr" ? "[err] " : ""}
+                    {l.line || "\u00a0"}
+                  </div>
+                ))}
+                {ocRunning && <div className="log-line">▍</div>}
+                {ocFailed && (
+                  <div className="log-line err">⚠ 失败：{ocFailed}</div>
+                )}
               </div>
             </section>
           </div>
@@ -673,8 +933,12 @@ export default function App() {
           />
           <button
             aria-label="执行"
-            className={page === "root" || page === "install" ? "active" : ""}
-            onClick={() => !running && !installing && setPage("choose")}
+            className={
+              page === "root" || page === "install" || page === "oneclick"
+                ? "active"
+                : ""
+            }
+            onClick={() => !running && !installing && !ocRunning && setPage("choose")}
           />
         </div>
       </footer>

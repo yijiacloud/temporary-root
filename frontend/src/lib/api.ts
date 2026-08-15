@@ -95,4 +95,41 @@ export const api = {
     };
     return ws;
   },
+  uploadOneclick: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return json<{ filename: string; local_path: string; size: number }>(
+      "/api/oneclick/upload",
+      { method: "POST", body: fd }
+    );
+  },
+  openOneclickSocket: (
+    lkOld: string,
+    boot: string,
+    apk: string,
+    onLine: (stream: string, line: string) => void,
+    onProgress: (step: number, total: number, name: string) => void,
+    onDone: () => void,
+    onFailed: (message: string) => void
+  ) => {
+    const protocol = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(
+      `${protocol}://${location.host}/ws/oneclick?lk_old=${encodeURIComponent(
+        lkOld
+      )}&boot=${encodeURIComponent(boot)}&apk=${encodeURIComponent(apk)}`
+    );
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "line") onLine(msg.stream, msg.line);
+      else if (msg.type === "progress") onProgress(msg.step, msg.total, msg.name);
+      else if (msg.type === "done") {
+        onDone();
+        ws.close();
+      } else if (msg.type === "failed") {
+        onFailed(msg.message);
+        ws.close();
+      }
+    };
+    return ws;
+  },
 };

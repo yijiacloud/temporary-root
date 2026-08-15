@@ -1,6 +1,7 @@
 """FastAPI application: REST + WebSocket front for xpad2 over adb."""
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -279,6 +280,180 @@ async def ws_install_apk(ws: WebSocket, remote: str, pkg: str = "") -> None:
         else:
             await send("⚠ 未能解析包名，请核对上方日志")
     except WebSocketDisconnect:
+        return
+    await ws.send_json({"type": "done"})
+    await ws.close()
+
+
+@app.post("/api/oneclick/upload")
+async def upload_oneclick(file: UploadFile = File(...)) -> dict:
+    """保存一键 Root 所需文件（lk_old/boot/apk），不 push，流程内统一处理。"""
+    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    filename = os.path.basename(file.filename or "upload.bin")
+    local = _UPLOAD_DIR / filename
+    with open(local, "wb") as f:
+        while chunk := await file.read(1024 * 1024):
+            f.write(chunk)
+    return {"filename": filename, "local_path": str(local), "size": local.stat().st_size}
+
+
+_OC_TMP = "/data/local/tmp/oneclick"
+_OC_STEPS = 7
+
+
+@app.websocket("/ws/oneclick")
+async def ws_oneclick(
+    ws: WebSocket, lk_old: str = "", boot: str = "", apk: str = ""
+) -> None:
+    """一键 Root：临时root → 备份lk → 刷lk_old → fastboot → unlock → 刷boot → 装apk。"""
+    await ws.accept()
+
+    async def log(stream: str, line: str) -> None:
+        await ws.send_json({"type": "line", "stream": stream, "line": line})
+
+    async def info(msg: str) -> None:
+        await log("stdout", msg)
+
+    async def progress(step: int, name: str) -> None:
+        await ws.send_json(
+            {"type": "progress", "step": step, "total": _OC_STEPS, "name": name}
+        )
+
+    async def run(argv: list[str]) -> None:
+        async for stream, line in executor.iter_lines(argv, _serial()):
+            await log(stream, line)
+
+    async def run_sync(args: list[str]):
+        res = adb.run_command(args, _serial())
+        for line in res.stdout.splitlines():
+            await log("stdout", line)
+        for line in res.stderr.splitlines():
+            await log("stderr", line)
+        return res
+
+    async def emit_result(res, label: str = "") -> None:
+        for line in res.stdout.splitlines():
+            if line.strip():
+                await log("stdout", line)
+        for line in res.stderr.splitlines():
+            if line.strip():
+                await log("stderr", line)
+
+    serial = _serial()
+    idx = 0
+
+    async def next_step(name: str) -> None:
+        nonlocal idx
+        idx += 1
+        await progress(idx, name)
+        await info(f"—— 步骤 {idx}/{_OC_STEPS}: {name} ——")
+
+    try:
+        # 1. 临时 root（不提示）
+        await next_step("临时 Root")
+        if not adb._mock():
+            await info(_push_reason_line(adb.ensure_xpad2_pushed(serial)))
+        await run([adb.XPAD2_DEVICE_PATH, "root"])
+
+        # 2. 备份 lk_a / lk_b
+        await next_step("备份 lk_a / lk_b")
+        for name in ("lk_a", "lk_b"):
+            part = adb.PARTITION_BY_NAME.format(name=name)
+            tmp = f"{_OC_TMP}/{name}.img"
+            if not adb._mock():
+                run_command_result = adb.shell_su_dd_read(part, tmp, serial)
+                await emit_result(run_command_result)
+            local = os.path.join(adb.BACKUP_DIR, f"{name}.img")
+            await info(f"→ 备份到 {local}")
+            await emit_result(adb.pull_file(tmp, local, serial))
+
+        # 3. 刷 lk_old → lk_a
+        await next_step("刷入 lk_old → lk_a")
+        if not os.path.isfile(lk_old):
+            raise RuntimeError(f"缺少 lk_old 文件：{lk_old}")
+        remote_lk = f"{_OC_TMP}/lk_old.img"
+        await info(f"→ push {lk_old}")
+        await emit_result(adb.push_file(lk_old, remote_lk, serial))
+        await info("→ dd 刷入 lk_a")
+        await emit_result(
+            adb.shell_su_dd_write(remote_lk, adb.PARTITION_BY_NAME.format(name="lk_a"), serial)
+        )
+
+        # 4. 进入 fastboot 并等待
+        await next_step("重启到 fastboot")
+        await info("→ adb reboot bootloader")
+        await emit_result(adb.reboot_bootloader(serial))
+        await info("→ 等待设备进入 fastboot…")
+        fb: list[str] = []
+        for _ in range(90):
+            fb = adb.fastboot_devices()
+            if fb:
+                break
+            await asyncio.sleep(2)
+        if not fb:
+            raise RuntimeError("等待 fastboot 超时（180s）")
+        await info(f"✓ fastboot 设备：{fb[0]}")
+
+        # 5. unlock
+        await next_step("解锁 (flashing unlock)")
+        await emit_result(adb.fastboot_run(["flashing", "unlock"], timeout=60))
+
+        # 6. 刷 boot_a / boot_b
+        await next_step("刷入 boot_a / boot_b")
+        if not os.path.isfile(boot):
+            raise RuntimeError(f"缺少 boot 文件：{boot}")
+        for slot in ("boot_a", "boot_b"):
+            await info(f"→ fastboot flash {slot} {boot}")
+            await emit_result(adb.fastboot_run(["flash", slot, boot], timeout=600))
+
+        # 7. 重启 + 装 apk
+        await next_step("重启并安装 APK")
+        await info("→ fastboot reboot")
+        await emit_result(adb.reboot_system())
+        await info("→ 等待设备回到系统…")
+        online = False
+        for _ in range(90):
+            devs = device.parse_devices(adb.list_devices_raw().stdout)
+            if any(d.state == "device" for d in devs):
+                online = True
+                break
+            await asyncio.sleep(2)
+        if not online:
+            raise RuntimeError("等待设备回到系统超时（180s）")
+        await info("✓ 设备已上线")
+        if os.path.isfile(apk):
+            await info("→ 安装 APK…")
+            pushed = adb.push_apk(apk, serial)
+            await info(f"→ remote: {pushed['remote_path']}")
+            out = ""
+            async for stream, line in executor.iter_lines(
+                adb.install_apk_argv(pushed["remote_path"], "auto"), serial
+            ):
+                await log(stream, line)
+                if stream == "stdout":
+                    out += line + "\n"
+            m = _PACKAGE_RE.search(out)
+            if not m:
+                await info("⚠ auto 未解析包名，direct 兜底…")
+                async for stream, line in executor.iter_lines(
+                    adb.install_apk_argv(pushed["remote_path"], "direct"), serial
+                ):
+                    await log(stream, line)
+                    if stream == "stdout":
+                        out += line + "\n"
+                m = _PACKAGE_RE.search(out)
+            await run(adb.cleanup_argv())
+            await info(f"✓ 安装成功，包名：{m.group(1)}" if m else "⚠ 未能解析包名")
+        else:
+            await info("⚠ 未提供 APK，跳过安装")
+
+        await info("======== 一键 Root 完成 ========")
+    except WebSocketDisconnect:
+        return
+    except Exception as e:  # noqa: BLE001
+        await info(f"⚠ 失败：{e}")
+        await ws.send_json({"type": "failed", "message": str(e)})
+        await ws.close()
         return
     await ws.send_json({"type": "done"})
     await ws.close()

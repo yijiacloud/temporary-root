@@ -34,6 +34,22 @@ ADB_BIN = (_find_adb(),)
 XPAD2_DEVICE_PATH = f"/data/local/tmp/xpad2-{date.today():%Y%m%d}"
 
 
+def _find_fastboot() -> str:
+    """Locate the fastboot binary (vendored platform-tools first)."""
+    env = os.environ.get("XPAD2_FASTBOOT")
+    if env:
+        return env
+    project_root = Path(__file__).resolve().parent.parent.parent
+    for name in ("fastboot.exe", "fastboot"):
+        candidate = project_root / "tools" / "platform-tools" / name
+        if candidate.exists():
+            return str(candidate)
+    return "fastboot"
+
+
+FASTBOOT_BIN = _find_fastboot()
+
+
 def _find_local_xpad2() -> str | None:
     """Path to the vendored xpad2 ELF, if present under tools/xpad2/."""
     project_root = Path(__file__).resolve().parent.parent.parent
@@ -282,3 +298,79 @@ def install_apk_argv(remote_path: str, backend: str = "auto") -> list[str]:
 def cleanup_argv() -> list[str]:
     """Device-side argv: xpad-install cleanup."""
     return [XPAD_INSTALL_REMOTE, "cleanup"]
+
+
+# ============ fastboot（一键 Root 流程）============
+def fastboot_run(args: list[str], timeout: int = 120) -> AdbResult:
+    """Run a fastboot command (device must be in fastboot mode)."""
+    if _mock():
+        return AdbResult(stdout="", stderr="", exit_code=0)
+    argv = [FASTBOOT_BIN, *args]
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    return AdbResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
+
+
+def fastboot_devices() -> list[str]:
+    """Serial numbers of devices currently in fastboot mode."""
+    res = fastboot_run(["devices"], timeout=15)
+    out = []
+    for line in res.stdout.splitlines():
+        parts = line.split()
+        if parts:
+            out.append(parts[0])
+    return out
+
+
+def reboot_bootloader(serial: str | None = None) -> AdbResult:
+    """`adb reboot bootloader` — put the device into fastboot mode."""
+    if _mock():
+        return AdbResult(stdout="mock reboot bootloader", stderr="", exit_code=0)
+    argv = [*ADB_BIN, *((["-s", serial]) if serial else []), "reboot", "bootloader"]
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+    return AdbResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
+
+
+def reboot_system() -> AdbResult:
+    """`fastboot reboot` — reboot back to Android."""
+    return fastboot_run(["reboot"], timeout=30)
+
+
+# ============ 分区备份 / 刷写（su + dd）============
+PARTITION_BY_NAME = "/dev/block/by-name/{name}"
+
+BACKUP_DIR = os.path.join(os.path.expandvars(r"%USERPROFILE%\Desktop"), "backup")
+
+
+def shell_su_dd_read(partition: str, remote_tmp: str, serial: str | None = None) -> AdbResult:
+    """Read a whole partition into a device-side temp file (requires su)."""
+    if _mock():
+        return AdbResult(stdout=f"mock dd read {partition}", stderr="", exit_code=0)
+    cmd = f"su -c 'dd if={partition} of={remote_tmp} bs=4096 2>/dev/null'"
+    return run_command(["sh", "-c", cmd], serial)
+
+
+def shell_su_dd_write(remote_src: str, partition: str, serial: str | None = None) -> AdbResult:
+    """Write a device-side file onto a partition (requires su, DESTRUCTIVE)."""
+    if _mock():
+        return AdbResult(stdout=f"mock dd write {partition}", stderr="", exit_code=0)
+    cmd = f"su -c 'dd if={remote_src} of={partition} bs=4096 2>/dev/null'"
+    return run_command(["sh", "-c", cmd], serial)
+
+
+def pull_file(remote_path: str, local_path: str, serial: str | None = None) -> AdbResult:
+    """`adb pull` a file from device to a local path."""
+    if _mock():
+        return AdbResult(stdout="mock pull", stderr="", exit_code=0)
+    Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+    argv = [*ADB_BIN, *((["-s", serial]) if serial else []), "pull", remote_path, local_path]
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+    return AdbResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
+
+
+def push_file(local_path: str, remote_path: str, serial: str | None = None) -> AdbResult:
+    """`adb push` a local file to the device."""
+    if _mock():
+        return AdbResult(stdout="mock push file", stderr="", exit_code=0)
+    argv = [*ADB_BIN, *((["-s", serial]) if serial else []), "push", local_path, remote_path]
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=600)
+    return AdbResult(stdout=proc.stdout, stderr=proc.stderr, exit_code=proc.returncode)
