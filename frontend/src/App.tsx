@@ -421,7 +421,7 @@ export default function App() {
             <div className="dialog-icon">✓</div>
             <div className="dialog-title">安装完成</div>
             <div className="dialog-body">
-              组件已成功安装。请重启设备使临时 Root 生效。
+              组件已成功安装。
             </div>
             <div className="dialog-actions">
               <button

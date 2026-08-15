@@ -100,7 +100,6 @@ _MOCK_OUTPUTS: dict[str, AdbResult] = {
             "✓ 临时 Root 已取得\n"
             "→ 安装组件...\n"
             "✓ KernelSU 已安装 (late-load)\n"
-            "⚠ 需要重启设备后才能生效\n"
         ),
         stderr="",
         exit_code=0,

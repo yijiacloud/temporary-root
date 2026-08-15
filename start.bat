@@ -1,6 +1,7 @@
 @echo off
+chcp 65001 >nul
 if /i "%~1"=="mock" (
-  start "" "D:\superroot\python\pythonw.exe" "%~dp0tools\launcher.py" --mock
+  "D:\superroot\python\python.exe" "%~dp0tools\launcher.py" --mock
 ) else (
-  start "" "D:\superroot\python\pythonw.exe" "%~dp0tools\launcher.py"
+  "D:\superroot\python\python.exe" "%~dp0tools\launcher.py"
 )
