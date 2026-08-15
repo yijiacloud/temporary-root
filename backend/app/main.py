@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
+from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -24,6 +26,9 @@ _TASKS: dict[str, str] = {}  # id -> status
 
 def _memory_path():
     return device._default_memory_path()
+
+
+_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 
 def _serial() -> str | None:
@@ -186,6 +191,42 @@ async def ws_run(ws: WebSocket, command: str) -> None:
             }
         )
     argv = _device_argv(parts)
+    try:
+        async for stream, line in executor.iter_lines(argv, _serial()):
+            await ws.send_json({"type": "line", "stream": stream, "line": line})
+        await ws.send_json({"type": "done"})
+    except WebSocketDisconnect:
+        return
+    await ws.close()
+
+
+@app.post("/api/apk/upload")
+async def upload_apk(file: UploadFile = File(...)) -> dict:
+    """接收上传的 APK，保存到本地并 adb push 到设备 /data/local/tmp。"""
+    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    filename = os.path.basename(file.filename or "upload.apk")
+    if not filename.lower().endswith(".apk"):
+        filename += ".apk"
+    local = _UPLOAD_DIR / filename
+    with open(local, "wb") as f:
+        while chunk := await file.read(1024 * 1024):
+            f.write(chunk)
+    result = adb.push_apk(str(local), _serial())
+    return {
+        "filename": filename,
+        "local_path": str(local),
+        "remote_path": result["remote_path"],
+        "size": local.stat().st_size,
+        "pushed": result["pushed"],
+        "detail": result["detail"],
+    }
+
+
+@app.websocket("/ws/install_apk")
+async def ws_install_apk(ws: WebSocket, remote: str, pkg: str = "") -> None:
+    """触发设备端 ZnxxInstaller 安装指定 APK（流式回传日志）。"""
+    await ws.accept()
+    argv = adb.install_apk_argv(remote, pkg or None)
     try:
         async for stream, line in executor.iter_lines(argv, _serial()):
             await ws.send_json({"type": "line", "stream": stream, "line": line})

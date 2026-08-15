@@ -117,6 +117,17 @@ def run_command(args: list[str], serial: str | None = None) -> AdbResult:
     the xpad2 path or a bare shell builtin-style command)."""
     if _mock():
         key = " ".join(arg for arg in args if not arg.startswith("/data/local/tmp"))
+        if "app_process" in key:
+            return AdbResult(
+                stdout=(
+                    "[+] ZnxxInstaller install\n"
+                    "→ 构造 Request(INSTALL_APP_ID, type=5)\n"
+                    "→ 经 content://com.tal.pad.znxxservice.binder_call_authorities 提交\n"
+                    "✓ APK 已静默安装\n"
+                ),
+                stderr="",
+                exit_code=0,
+            )
         if key not in _MOCK_OUTPUTS:
             head = key.split(" ", 1)[0]
             if head in _MOCK_OUTPUTS:  # e.g. "install ksu suu" -> "install"
@@ -188,3 +199,41 @@ def ensure_xpad2_pushed(serial: str | None = None) -> dict:
         "serial": serial,
         "detail": (push.stdout + push.stderr + chmod.stdout + chmod.stderr).strip(),
     }
+
+
+# ============ 安装 Apps（ZnxxInstaller 静默安装）============
+# 逆向自 com.tal.tool.ZnxxInstaller.main(String[])：
+#   命令 = install <apk路径> [包名] / uninstall <pkg> / check
+# 无 Context 时反射 ActivityThread.systemMain() 拿系统上下文，经
+# content://com.tal.pad.znxxservice.binder_call_authorities 的 Binder 后门调用安装。
+ZNXX_CLASS = "com.tal.tool.ZnxxInstaller"
+ZNXX_DEX_REMOTE = "/data/local/tmp/znxx_installer.dex"
+APK_DEVICE_DIR = "/data/local/tmp"
+# 触发命令模板，可用环境变量 XPAD2_APK_INSTALL_CMD 覆盖；{apk} 会被替换为设备内 APK 路径
+APK_INSTALL_CMD = os.environ.get(
+    "XPAD2_APK_INSTALL_CMD",
+    f"CLASSPATH={ZNXX_DEX_REMOTE} app_process /system/bin {ZNXX_CLASS} install {{apk}}",
+)
+
+
+def push_apk(local_path: str, serial: str | None = None) -> dict:
+    """Push an APK to /data/local/tmp on the device."""
+    filename = os.path.basename(local_path)
+    remote = f"{APK_DEVICE_DIR}/{filename}"
+    if _mock():
+        return {"pushed": True, "remote_path": remote, "detail": "mock push (no device)"}
+    argv = [*ADB_BIN, *((["-s", serial]) if serial else []), "push", local_path, remote]
+    proc = subprocess.run(argv, capture_output=True, text=True, timeout=180)
+    return {
+        "pushed": proc.returncode == 0,
+        "remote_path": remote,
+        "detail": (proc.stdout + proc.stderr).strip(),
+    }
+
+
+def install_apk_argv(remote_path: str, pkg: str | None = None) -> list[str]:
+    """Device-side argv that triggers ZnxxInstaller to install an APK."""
+    cmd = APK_INSTALL_CMD.format(apk=remote_path)
+    if pkg:
+        cmd += f" {pkg}"
+    return ["sh", "-c", cmd]

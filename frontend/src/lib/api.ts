@@ -61,4 +61,38 @@ export const api = {
     };
     return ws;
   },
+  uploadApk: (file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return json<{
+      filename: string;
+      local_path: string;
+      remote_path: string;
+      size: number;
+      pushed: boolean;
+      detail: string;
+    }>("/api/apk/upload", { method: "POST", body: fd });
+  },
+  openInstallSocket: (
+    remote: string,
+    pkg: string,
+    onLine: (stream: string, line: string) => void,
+    onDone: () => void
+  ) => {
+    const protocol = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(
+      `${protocol}://${location.host}/ws/install_apk?remote=${encodeURIComponent(
+        remote
+      )}&pkg=${encodeURIComponent(pkg)}`
+    );
+    ws.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "line") onLine(msg.stream, msg.line);
+      else if (msg.type === "done") {
+        onDone();
+        ws.close();
+      }
+    };
+    return ws;
+  },
 };

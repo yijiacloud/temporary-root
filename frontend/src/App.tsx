@@ -28,7 +28,7 @@ interface Status {
   temporary_root?: TempRoot;
 }
 
-type Page = "cover" | "scan" | "root";
+type Page = "cover" | "scan" | "choose" | "root" | "install";
 
 export default function App() {
   const [page, setPage] = useState<Page>("cover");
@@ -43,6 +43,21 @@ export default function App() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const wsRef = useRef<WebSocket | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
+
+  // install-apps page state
+  const [apkRemote, setApkRemote] = useState<string | null>(null);
+  const [apkName, setApkName] = useState<string | null>(null);
+  const [apkSize, setApkSize] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<string>("");
+  const [installing, setInstalling] = useState(false);
+  const [installDone, setInstallDone] = useState(false);
+  const [installLines, setInstallLines] = useState<{ stream: string; line: string }[]>(
+    []
+  );
+  const fileRef = useRef<HTMLInputElement>(null);
+  const installWsRef = useRef<WebSocket | null>(null);
+  const installLogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("light", theme === "light");
@@ -65,7 +80,7 @@ export default function App() {
           const s = online[0].serial;
           setSerial(s);
           api.selectDevice(s).catch(() => {});
-          setPage("root");
+          setPage("choose");
           return;
         }
       } catch {
@@ -91,6 +106,11 @@ export default function App() {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [lines]);
+
+  useEffect(() => {
+    if (installLogRef.current)
+      installLogRef.current.scrollTop = installLogRef.current.scrollHeight;
+  }, [installLines]);
 
   function refreshStatus() {
     api.getStatus().then(setStatus).catch(() => setStatus(null));
@@ -130,6 +150,53 @@ export default function App() {
   function stopInstall() {
     wsRef.current?.close();
     setRunning(false);
+  }
+
+  async function onPickFile(file: File | null) {
+    if (!file) return;
+    setUploading(true);
+    setUploadMsg("");
+    setApkRemote(null);
+    setApkName(file.name);
+    setApkSize(file.size);
+    setInstallLines([]);
+    setInstallDone(false);
+    try {
+      const r = await api.uploadApk(file);
+      if (r.pushed) {
+        setApkRemote(r.remote_path);
+        setUploadMsg(
+          `已推送到设备 ${r.remote_path}（${(r.size / 1024 / 1024).toFixed(2)} MB）`
+        );
+      } else {
+        setUploadMsg(`推送失败：${r.detail || "未知错误"}`);
+      }
+    } catch (e) {
+      setUploadMsg(`上传失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function doInstallApk() {
+    if (!apkRemote || installing) return;
+    setInstalling(true);
+    setInstallDone(false);
+    setInstallLines([]);
+    installWsRef.current = api.openInstallSocket(
+      apkRemote,
+      "",
+      (stream, line) => setInstallLines((p) => [...p, { stream, line }]),
+      () => {
+        setInstalling(false);
+        setInstallDone(true);
+      }
+    );
+  }
+
+  function stopApkInstall() {
+    installWsRef.current?.close();
+    setInstalling(false);
   }
 
   const rootState = status?.temporary_root?.state ?? "unknown";
@@ -218,6 +285,198 @@ export default function App() {
           </>
         )}
 
+        {page === "choose" && (
+          <>
+            <div className="scan-title">选择操作</div>
+            <p className="scan-status">
+              设备已连接：{" "}
+              <span style={{ fontFamily: "ui-monospace, monospace" }}>
+                {serial ?? "未选择"}
+              </span>
+              ，请选择要执行的操作。
+            </p>
+            <div
+              className="w-full"
+              style={{
+                maxWidth: 560,
+                display: "flex",
+                flexDirection: "column",
+                gap: "1rem",
+              }}
+            >
+              <button
+                className="card choose-card"
+                onClick={() => setPage("root")}
+              >
+                <div className="choose-icon">⚡</div>
+                <div style={{ textAlign: "left" }}>
+                  <div className="card-title" style={{ marginBottom: 4 }}>
+                    临时 Root
+                  </div>
+                  <div className="card-subtitle" style={{ margin: 0 }}>
+                    通过 IonStack 取得临时 Root，安装 KernelSU / SukiSU / Zygisk
+                  </div>
+                </div>
+              </button>
+              <button
+                className="card choose-card"
+                onClick={() => setPage("install")}
+              >
+                <div className="choose-icon">📦</div>
+                <div style={{ textAlign: "left" }}>
+                  <div className="card-title" style={{ marginBottom: 4 }}>
+                    安装 Apps
+                  </div>
+                  <div className="card-subtitle" style={{ margin: 0 }}>
+                    上传 APK，经 ZnxxInstaller 静默安装到设备
+                  </div>
+                </div>
+              </button>
+            </div>
+          </>
+        )}
+
+        {page === "install" && (
+          <div
+            className="w-full"
+            style={{
+              maxWidth: 920,
+              margin: "0 auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: "1rem",
+            }}
+          >
+            {/* device bar */}
+            <div
+              className="card"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "1rem",
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ textAlign: "left" }}>
+                <div className="card-title" style={{ marginBottom: 0 }}>
+                  设备
+                </div>
+                <div
+                  style={{
+                    fontFamily: "ui-monospace, monospace",
+                    fontSize: "0.85rem",
+                    color: "var(--md-on-surface-variant)",
+                  }}
+                >
+                  {serial ?? "未选择"}
+                </div>
+              </div>
+              <button
+                className="btn btn-outlined"
+                style={{ height: 40 }}
+                onClick={() => setPage("choose")}
+              >
+                返回选择
+              </button>
+            </div>
+
+            {/* upload card */}
+            <section className="card">
+              <div className="card-title" style={{ textAlign: "left" }}>
+                上传 APK
+              </div>
+              <div className="card-subtitle" style={{ textAlign: "left" }}>
+                选择要静默安装到设备的 APK，将自动 push 到 /data/local/tmp
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".apk,.APK"
+                hidden
+                onChange={(e) => onPickFile(e.target.files?.[0] ?? null)}
+              />
+              <div
+                className="flex flex-wrap items-center gap-3"
+                style={{ justifyContent: "flex-start" }}
+              >
+                <button
+                  className="btn btn-tonal"
+                  style={{ height: 40 }}
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading}
+                >
+                  {uploading ? "上传中…" : "选择 APK"}
+                </button>
+                {apkName && !uploading && (
+                  <span
+                    className="text-sm"
+                    style={{ color: "var(--md-on-surface-variant)" }}
+                  >
+                    {apkName}（{((apkSize ?? 0) / 1024 / 1024).toFixed(2)} MB）
+                  </span>
+                )}
+              </div>
+              {uploadMsg && (
+                <div
+                  className="text-sm"
+                  style={{
+                    textAlign: "left",
+                    marginTop: 8,
+                    color: "var(--md-on-surface-variant)",
+                  }}
+                >
+                  {uploadMsg}
+                </div>
+              )}
+            </section>
+
+            {/* actions */}
+            <div
+              className="flex flex-wrap items-center gap-3"
+              style={{ justifyContent: "flex-start" }}
+            >
+              <button
+                className="btn btn-filled"
+                onClick={doInstallApk}
+                disabled={!apkRemote || installing}
+              >
+                {installing ? "安装中…" : "开始安装"}
+              </button>
+              {installing && (
+                <button className="btn btn-outlined" onClick={stopApkInstall}>
+                  停止
+                </button>
+              )}
+            </div>
+
+            {/* log */}
+            <section className="card" style={{ padding: "0.6rem" }}>
+              <div className="log" ref={installLogRef} style={{ textAlign: "left" }}>
+                {installLines.length === 0 && !installing && (
+                  <div
+                    className="log-line"
+                    style={{ color: "var(--md-outline)" }}
+                  >
+                    等待安装……
+                  </div>
+                )}
+                {installLines.map((l, i) => (
+                  <div
+                    key={i}
+                    className={`log-line ${l.stream === "stderr" ? "err" : ""}`}
+                  >
+                    {l.stream === "stderr" ? "[err] " : ""}
+                    {l.line || "\u00a0"}
+                  </div>
+                ))}
+                {installing && <div className="log-line">▍</div>}
+                {installDone && <div className="log-line done">—— 完成 ——</div>}
+              </div>
+            </section>
+          </div>
+        )}
+
         {page === "root" && (
           <div
             className="w-full"
@@ -257,9 +516,9 @@ export default function App() {
               <button
                 className="btn btn-outlined"
                 style={{ height: 40 }}
-                onClick={() => setPage("scan")}
+                onClick={() => setPage("choose")}
               >
-                重新寻找
+                返回选择
               </button>
             </div>
 
@@ -400,17 +659,22 @@ export default function App() {
           <button
             aria-label="封面"
             className={page === "cover" ? "active" : ""}
-            onClick={() => !running && setPage("cover")}
+            onClick={() => !running && !installing && setPage("cover")}
           />
           <button
             aria-label="寻找设备"
             className={page === "scan" ? "active" : ""}
-            onClick={() => !running && setPage("scan")}
+            onClick={() => !running && !installing && setPage("scan")}
           />
           <button
-            aria-label="临时 Root"
-            className={page === "root" ? "active" : ""}
-            onClick={() => !running && setPage("root")}
+            aria-label="选择操作"
+            className={page === "choose" ? "active" : ""}
+            onClick={() => !running && !installing && setPage("choose")}
+          />
+          <button
+            aria-label="执行"
+            className={page === "root" || page === "install" ? "active" : ""}
+            onClick={() => !running && !installing && setPage("choose")}
           />
         </div>
       </footer>
