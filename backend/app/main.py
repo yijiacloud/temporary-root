@@ -66,6 +66,19 @@ def _push_reason_line(result: dict) -> str:
     return f"⚠ xpad2 推送跳过：{reason}"
 
 
+def _dex_reason_line(result: dict) -> str:
+    if result.get("pushed"):
+        return f"→ 已推送 znxx_installer.dex 到 /data/local/tmp (serial={result.get('serial')})"
+    reason = result.get("reason")
+    if reason == "already-present":
+        return "→ znxx_installer.dex 已在设备上，跳过推送"
+    if reason == "mock-or-missing-local-dex":
+        return "⚠ 未找到本地 znxx_installer.dex (tools/znxx-installer/)，无法推送"
+    if reason == "no-authorized-device":
+        return "⚠ 未检测到已授权设备，无法推送 znxx_installer.dex"
+    return f"⚠ dex 推送跳过：{reason}"
+
+
 @app.get("/api/health")
 def health() -> dict:
     devices = device.parse_devices(adb.list_devices_raw().stdout)
@@ -226,7 +239,15 @@ async def upload_apk(file: UploadFile = File(...)) -> dict:
 async def ws_install_apk(ws: WebSocket, remote: str, pkg: str = "") -> None:
     """触发设备端 ZnxxInstaller 安装指定 APK（流式回传日志）。"""
     await ws.accept()
+    if not adb._mock():
+        dex = adb.ensure_znxx_dex_pushed(_serial())
+        await ws.send_json(
+            {"type": "line", "stream": "stdout", "line": _dex_reason_line(dex)}
+        )
     argv = adb.install_apk_argv(remote, pkg or None)
+    await ws.send_json(
+        {"type": "line", "stream": "stdout", "line": "→ 执行: " + " ".join(argv)}
+    )
     try:
         async for stream, line in executor.iter_lines(argv, _serial()):
             await ws.send_json({"type": "line", "stream": stream, "line": line})

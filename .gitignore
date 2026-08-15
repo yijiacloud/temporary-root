@@ -18,6 +18,7 @@ uploads/
 # Vendored binaries (large, device-specific, fetched by bootstrap)
 tools/xpad2/
 tools/platform-tools/
+tools/znxx-installer/
 
 # OS / IDE
 .DS_Store

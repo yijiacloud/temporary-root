@@ -237,3 +237,48 @@ def install_apk_argv(remote_path: str, pkg: str | None = None) -> list[str]:
     if pkg:
         cmd += f" {pkg}"
     return ["sh", "-c", cmd]
+
+
+def _find_local_znxx_dex() -> str | None:
+    """Vendored com.tal.tool.ZnxxInstaller dex under tools/znxx-installer/."""
+    project_root = Path(__file__).resolve().parent.parent.parent
+    candidate = project_root / "tools" / "znxx-installer" / "znxx_installer.dex"
+    return str(candidate) if candidate.exists() else None
+
+
+ZNXX_DEX_LOCAL = _find_local_znxx_dex()
+
+
+def ensure_znxx_dex_pushed(serial: str | None = None) -> dict:
+    """Push the ZnxxInstaller dex to /data/local/tmp if the device lacks it.
+    Without this dex, `app_process ... ZnxxInstaller` exits immediately with
+    no output (the "flash and nothing happens" symptom)."""
+    if _mock() or not ZNXX_DEX_LOCAL:
+        return {"pushed": False, "reason": "mock-or-missing-local-dex"}
+
+    if serial is None:
+        from . import device as _device
+
+        devices = _device.parse_devices(list_devices_raw().stdout)
+        online = [d for d in devices if d.state == "device"]
+        if not online:
+            return {"pushed": False, "reason": "no-authorized-device"}
+        serial = online[0].serial
+
+    check = run_command(
+        ["sh", "-c", f"test -f {ZNXX_DEX_REMOTE} && echo yes || echo no"], serial
+    )
+    if "yes" in check.stdout:
+        return {"pushed": False, "reason": "already-present", "serial": serial}
+
+    push = subprocess.run(
+        [*ADB_BIN, "-s", serial, "push", ZNXX_DEX_LOCAL, ZNXX_DEX_REMOTE],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    return {
+        "pushed": push.returncode == 0,
+        "serial": serial,
+        "detail": (push.stdout + push.stderr).strip(),
+    }
