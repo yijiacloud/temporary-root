@@ -495,17 +495,59 @@ body {
   flex-shrink: 0;
 }
 
-/* ============ oneclick progress ============ */
-.progress-track {
-  width: 100%;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--md-surface-container-high);
-  overflow: hidden;
+/* ============ oneclick steps ============ */
+.steps-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
-.progress-fill {
-  height: 100%;
+.step-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
   border-radius: 999px;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
+  font-size: 0.82rem;
+  transition: all 0.2s ease;
+}
+.step-chip .step-num {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--md-surface-container-highest);
+}
+.step-chip.active {
+  border-color: var(--md-primary);
+  color: var(--md-on-primary-container);
+  background: var(--md-primary-container);
+}
+.step-chip.active .step-num {
   background: var(--md-primary);
-  transition: width 0.3s ease;
+  color: var(--md-on-primary);
+}
+.step-chip.done {
+  border-color: rgba(46, 160, 67, 0.4);
+  color: #56d364;
+}
+.step-chip.done .step-num {
+  background: rgba(46, 160, 67, 0.2);
+  color: #56d364;
+}
+.step-icon-big {
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  flex-shrink: 0;
 }

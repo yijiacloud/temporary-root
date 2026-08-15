@@ -301,12 +301,22 @@ _OC_TMP = "/data/local/tmp/oneclick"
 _OC_STEPS = 7
 
 
+def _default_oc(filename: str) -> str:
+    """Default one-click file under tools/oneclick/, empty string if absent."""
+    p = adb.ONECLICK_DIR / filename
+    return str(p) if p.exists() else ""
+
+
 @app.websocket("/ws/oneclick")
 async def ws_oneclick(
     ws: WebSocket, lk_old: str = "", boot: str = "", apk: str = ""
 ) -> None:
     """一键 Root：临时root → 备份lk → 刷lk_old → fastboot → unlock → 刷boot → 装apk。"""
     await ws.accept()
+    # 未显式传文件时回退到 tools/oneclick/ 默认文件
+    lk_old = lk_old or _default_oc("lk_old.img")
+    boot = boot or _default_oc("boot.img")
+    apk = apk or _default_oc("manger.apk")
 
     async def log(stream: str, line: str) -> None:
         await ws.send_json({"type": "line", "stream": stream, "line": line})

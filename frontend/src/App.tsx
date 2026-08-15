@@ -16,6 +16,16 @@ const COMPONENT_META: Record<string, string> = {
   ota: "OTA",
 };
 
+const OC_STEPS: { title: string; icon: string; desc: string }[] = [
+  { title: "临时 Root", icon: "⚡", desc: "通过 IonStack 取得临时 Root" },
+  { title: "备份 lk_a / lk_b", icon: "💾", desc: "读取分区并备份到 Desktop\\backup" },
+  { title: "刷入 lk_old", icon: "🔧", desc: "dd 刷入 lk_old → lk_a" },
+  { title: "进入 fastboot", icon: "🔄", desc: "重启到 fastboot 并等待设备" },
+  { title: "解锁 bootloader", icon: "🔓", desc: "fastboot flashing unlock" },
+  { title: "刷入 boot", icon: "📀", desc: "flash boot_a + boot_b" },
+  { title: "安装 APK", icon: "📦", desc: "重启后 xpad-install 静默安装" },
+];
+
 interface TempRoot {
   id: string;
   state: string;
@@ -60,10 +70,6 @@ export default function App() {
   const installLogRef = useRef<HTMLDivElement>(null);
 
   // oneclick page state
-  const [ocLk, setOcLk] = useState<string | null>(null);
-  const [ocBoot, setOcBoot] = useState<string | null>(null);
-  const [ocApk, setOcApk] = useState<string | null>(null);
-  const [ocUploading, setOcUploading] = useState<"lk" | "boot" | "apk" | null>(null);
   const [ocStep, setOcStep] = useState(0);
   const [ocTotal, setOcTotal] = useState(7);
   const [ocStepName, setOcStepName] = useState("");
@@ -71,9 +77,6 @@ export default function App() {
   const [ocDone, setOcDone] = useState(false);
   const [ocFailed, setOcFailed] = useState<string | null>(null);
   const [ocLines, setOcLines] = useState<{ stream: string; line: string }[]>([]);
-  const ocLkRef = useRef<HTMLInputElement>(null);
-  const ocBootRef = useRef<HTMLInputElement>(null);
-  const ocApkRef = useRef<HTMLInputElement>(null);
   const ocWsRef = useRef<WebSocket | null>(null);
   const ocLogRef = useRef<HTMLDivElement>(null);
 
@@ -221,36 +224,17 @@ export default function App() {
     setInstalling(false);
   }
 
-  async function uploadOcFile(kind: "lk" | "boot" | "apk", file: File | null) {
-    if (!file) return;
-    setOcUploading(kind);
-    try {
-      const r = await api.uploadOneclick(file);
-      if (kind === "lk") setOcLk(r.local_path);
-      else if (kind === "boot") setOcBoot(r.local_path);
-      else setOcApk(r.local_path);
-    } catch (e) {
-      alert("上传失败：" + (e instanceof Error ? e.message : String(e)));
-    } finally {
-      setOcUploading(null);
-    }
-  }
-
   function startOneclick() {
     if (ocRunning) return;
-    if (!ocLk || !ocBoot || !ocApk) {
-      alert("请先上传 lk_old、boot 镜像、APK 三个文件");
-      return;
-    }
     setOcRunning(true);
     setOcDone(false);
     setOcFailed(null);
     setOcLines([]);
-    setOcStep(0);
+    setOcStep(1);
     ocWsRef.current = api.openOneclickSocket(
-      ocLk,
-      ocBoot,
-      ocApk,
+      "",
+      "",
+      "",
       (stream, line) => setOcLines((p) => [...p, { stream, line }]),
       (step, total, name) => {
         setOcStep(step);
@@ -609,108 +593,102 @@ export default function App() {
               </button>
             </div>
 
-            <section className="card">
-              <div className="card-title" style={{ textAlign: "left" }}>
-                准备文件
-              </div>
-              <div className="card-subtitle" style={{ textAlign: "left" }}>
-                上传 lk_old（刷入 lk_a）、boot 镜像（刷 boot_a + boot_b）、目标 APK
-              </div>
-              <input
-                ref={ocLkRef}
-                type="file"
-                hidden
-                onChange={(e) => uploadOcFile("lk", e.target.files?.[0] ?? null)}
-              />
-              <input
-                ref={ocBootRef}
-                type="file"
-                hidden
-                onChange={(e) => uploadOcFile("boot", e.target.files?.[0] ?? null)}
-              />
-              <input
-                ref={ocApkRef}
-                type="file"
-                accept=".apk,.APK"
-                hidden
-                onChange={(e) => uploadOcFile("apk", e.target.files?.[0] ?? null)}
-              />
+            {/* 步骤指示器 */}
+            <div className="steps-bar">
+              {OC_STEPS.map((s, i) => {
+                const n = i + 1;
+                const st =
+                  ocDone || n < ocStep
+                    ? "done"
+                    : n === ocStep
+                    ? "active"
+                    : "todo";
+                return (
+                  <div key={n} className={`step-chip ${st}`}>
+                    <span className="step-num">{st === "done" ? "✓" : n}</span>
+                    <span className="step-label">{s.title}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 当前步主体 */}
+            <section className="card step-main">
+              {ocDone ? (
+                <div style={{ textAlign: "center", padding: "0.8rem 0" }}>
+                  <div className="cover-icon">✅</div>
+                  <div className="card-title">全部完成</div>
+                  <div className="card-subtitle" style={{ margin: "0 auto" }}>
+                    一键 Root 流程已结束，设备已重启并安装 APK
+                  </div>
+                </div>
+              ) : ocFailed ? (
+                <div style={{ textAlign: "center", padding: "0.8rem 0" }}>
+                  <div className="cover-icon">❌</div>
+                  <div className="card-title">执行失败</div>
+                  <div className="card-subtitle" style={{ margin: "0 auto" }}>
+                    {ocFailed}
+                  </div>
+                </div>
+              ) : ocStep === 0 ? (
+                <div style={{ textAlign: "center", padding: "0.8rem 0" }}>
+                  <div className="cover-icon">🔒</div>
+                  <div className="card-title">一键 Root</div>
+                  <div className="card-subtitle" style={{ margin: "0 auto" }}>
+                    全自动执行 7 步，每步自动翻页，文件取自 tools/oneclick/
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "1rem",
+                    textAlign: "left",
+                  }}
+                >
+                  <div className="step-icon-big">
+                    {OC_STEPS[ocStep - 1].icon}
+                  </div>
+                  <div>
+                    <div className="card-title" style={{ marginBottom: 4 }}>
+                      第 {ocStep} 步 · {ocStepName || OC_STEPS[ocStep - 1].title}
+                    </div>
+                    <div className="card-subtitle" style={{ margin: 0 }}>
+                      {OC_STEPS[ocStep - 1].desc}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* 开始按钮 */}
+            {!ocRunning && !ocDone && (
               <div
                 className="flex flex-wrap items-center gap-3"
                 style={{ justifyContent: "flex-start" }}
               >
-                <button
-                  className="btn btn-tonal"
-                  style={{ height: 40 }}
-                  onClick={() => ocLkRef.current?.click()}
-                  disabled={ocRunning || ocUploading === "lk"}
-                >
-                  {ocUploading === "lk" ? "上传中…" : ocLk ? "✓ lk_old" : "选择 lk_old"}
-                </button>
-                <button
-                  className="btn btn-tonal"
-                  style={{ height: 40 }}
-                  onClick={() => ocBootRef.current?.click()}
-                  disabled={ocRunning || ocUploading === "boot"}
-                >
-                  {ocUploading === "boot" ? "上传中…" : ocBoot ? "✓ boot" : "选择 boot.img"}
-                </button>
-                <button
-                  className="btn btn-tonal"
-                  style={{ height: 40 }}
-                  onClick={() => ocApkRef.current?.click()}
-                  disabled={ocRunning || ocUploading === "apk"}
-                >
-                  {ocUploading === "apk" ? "上传中…" : ocApk ? "✓ apk" : "选择 APK"}
+                <button className="btn btn-filled" onClick={startOneclick}>
+                  {ocFailed ? "重试" : "开始一键 Root"}
                 </button>
               </div>
-            </section>
-
-            <section className="card">
+            )}
+            {ocRunning && (
               <div
-                className="card-title"
-                style={{ textAlign: "left", marginBottom: 8 }}
+                className="flex flex-wrap items-center gap-3"
+                style={{ justifyContent: "flex-start" }}
               >
-                {ocDone
-                  ? "✅ 全部完成"
-                  : ocFailed
-                  ? "❌ 失败"
-                  : ocRunning
-                  ? `正在执行 ${ocStep}/${ocTotal} — ${ocStepName}`
-                  : "7 步流程"}
-              </div>
-              <div className="progress-track">
-                <div
-                  className="progress-fill"
-                  style={{ width: `${(ocStep / ocTotal) * 100}%` }}
-                />
-              </div>
-              <div
-                className="card-subtitle"
-                style={{ textAlign: "left", marginTop: 8 }}
-              >
-                1 临时Root → 2 备份lk → 3 刷lk_old → 4 fastboot → 5 unlock → 6
-                刷boot → 7 装APK
-              </div>
-            </section>
-
-            <div
-              className="flex flex-wrap items-center gap-3"
-              style={{ justifyContent: "flex-start" }}
-            >
-              <button
-                className="btn btn-filled"
-                onClick={startOneclick}
-                disabled={ocRunning}
-              >
-                {ocRunning ? "执行中…" : "开始一键 Root"}
-              </button>
-              {ocRunning && (
+                <span
+                  className="card-subtitle"
+                  style={{ margin: 0, color: "var(--md-primary)" }}
+                >
+                  正在执行第 {ocStep}/{ocTotal} 步…
+                </span>
                 <button className="btn btn-outlined" onClick={stopOneclick}>
                   停止
                 </button>
-              )}
-            </div>
+              </div>
+            )}
 
             <section className="card" style={{ padding: "0.6rem" }}>
               <div className="log" ref={ocLogRef} style={{ textAlign: "left" }}>

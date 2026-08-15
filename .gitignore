@@ -19,6 +19,7 @@ uploads/
 tools/xpad2/
 tools/platform-tools/
 tools/xpad-install/
+tools/oneclick/
 
 # OS / IDE
 .DS_Store

@@ -340,6 +340,9 @@ PARTITION_BY_NAME = "/dev/block/by-name/{name}"
 
 BACKUP_DIR = os.path.join(os.path.expandvars(r"%USERPROFILE%\Desktop"), "backup")
 
+# 一键 Root 默认文件目录（lk_old.img / boot.img / manger.apk）
+ONECLICK_DIR = Path(__file__).resolve().parent.parent.parent / "tools" / "oneclick"
+
 
 def shell_su_dd_read(partition: str, remote_tmp: str, serial: str | None = None) -> AdbResult:
     """Read a whole partition into a device-side temp file (requires su)."""
